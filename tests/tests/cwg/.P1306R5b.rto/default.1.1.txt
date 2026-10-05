@@ -1,0 +1,65 @@
+fe_only -DTEST_NUMBER=1 --c++26 -tused -A Test_name.c
+"Test_name.c", line 10: error: the body of an expansion statement must be a compound statement
+      ;
+      ^
+
+"Test_name.c", line 14: error: a storage class may not be specified here
+    template for (static auto a : z) { }        // error: storage class
+                  ^
+
+"Test_name.c", line 15: error: thread-local storage class is not valid here
+    template for (thread_local auto a : z) { }  // error: storage class
+                  ^
+
+"Test_name.c", line 16: error: a storage class may not be specified here
+    template for (extern auto a : z) { }        // error: storage class
+                  ^
+
+"Test_name.c", line 17: error: type definition is not allowed
+    template for (struct Q { int q; } a : z) { }  // error: type definition
+                  ^
+
+"Test_name.c", line 17: error: no suitable constructor exists to convert from "int" to "Q"
+    template for (struct Q { int q; } a : z) { }  // error: type definition
+                                          ^
+
+"Test_name.c", line 17: error: no suitable constructor exists to convert from "int" to "Q"
+    template for (struct Q { int q; } a : z) { }  // error: type definition
+                                          ^
+
+"Test_name.c", line 17: error: no suitable constructor exists to convert from "int" to "Q"
+    template for (struct Q { int q; } a : z) { }  // error: type definition
+                                          ^
+
+"Test_name.c", line 22: error: an expression of type "int" cannot be used as an expansion-initializer
+    template for (auto a : i) { }     // error: not expandable
+                           ^
+
+"Test_name.c", line 27: error: a label cannot appear in the body of an expansion statement
+      lab: ;                          // error: label in the body
+      ^
+
+"Test_name.c", line 32: error: a case label cannot appear in an expansion statement enclosed by the switch
+      case 2:                         // error: case label of an outer switch
+      ^
+
+"Test_name.c", line 34: error: a case label cannot appear in an expansion statement enclosed by the switch
+      default:                        // error: case label of an outer switch
+      ^
+
+"Test_name.c", line 31: warning: dynamic initialization in unreachable code
+      template for (auto a : z) {
+                         ^
+
+"Test_name.c", line 31: warning: dynamic initialization in unreachable code
+      template for (auto a : z) {
+                         ^
+
+"Test_name.c", line 47: error: the expansion-initializer of an iterating expansion statement is not a constant expression
+    template for (auto a : not_constant{p, p + 1}) { }  // error: not constant
+                           ^
+"Test_name.c", line 47: note: the value of parameter "p" (declared at line 46) cannot be used as a constant
+    template for (auto a : not_constant{p, p + 1}) { }  // error: not constant
+                                        ^
+
+13 errors detected in the compilation of "Test_name.c".

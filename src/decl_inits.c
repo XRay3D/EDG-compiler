@@ -6330,6 +6330,27 @@ returned set to TRUE.
 }  /* initializer */
 
 
+void gen_variable_dynamic_init(a_variable_ptr      vp,
+                               a_dynamic_init_ptr  dip)
+/*
+Generate the dynamic initialization of the local variable vp from the dynamic
+init entry dip, including the stmk_init statement that performs it at the
+current point in the code.  This is used for variables that are created by
+the front end rather than by an ordinary declaration, but whose
+initialization must nevertheless happen at a specific point in the generated
+code (e.g., the variable declared by the for-range-declaration of an
+expansion statement).
+*/
+{
+  a_local_static_variable_init_ptr  local_static_var_init = NULL;
+
+  gen_dynamic_initialization(vp, dip, &local_static_var_init,
+                             &vp->source_corresp.decl_position,
+                             (a_decl_pos_block_ptr)NULL,
+                             (a_statement_ptr *)NULL);
+}  /* gen_variable_dynamic_init */
+
+
 void record_struct_binding_expr_for_tuple_element(a_variable_ptr     binding,
                                                   an_init_component  *icp)
 /*

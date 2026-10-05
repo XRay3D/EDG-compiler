@@ -2531,6 +2531,7 @@ STATIC_THREAD a_flag_name
   { "reflection", &reflection_enabled },
   { "injection", &injection_enabled },
 #endif /* REFLECTION_ENABLING_POSSIBLE */
+  { "expansion_statements", &expansion_statements_enabled },
   { "alias_templ_intrinsics", &alias_templ_intrinsics_enabled },
   { "var_templ_intrinsics", &var_templ_intrinsics_enabled },
   { "templ_type_member_intrinsics", &templ_type_member_intrinsics_enabled },
@@ -4449,6 +4450,7 @@ default mode (e.g., exception handling).
     embed_enabled = TRUE;
     struct_binding_packs_enabled = TRUE;
     pack_indexing_enabled = TRUE;
+    expansion_statements_enabled = TRUE;
   }  /* if */
   /* Disable "false" as a null pointer constant in C++11 mode (as per Core
      issue 903). */
@@ -13864,6 +13866,7 @@ variables declared in cmd_line.h.
   embed_enabled = FALSE;
   struct_binding_packs_enabled = FALSE;
   pack_indexing_enabled = FALSE;
+  expansion_statements_enabled = FALSE;
 }  /* cmd_line_static_var_init */
 
 

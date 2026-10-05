@@ -27853,7 +27853,7 @@ encountered.  stop_tokens is the stop token set to be used.
 }  /* cache_to_compound_stmt */
 
 
-static void cache_compound_stmt(a_token_cache		*p_token_cache,
+void cache_compound_stmt(a_token_cache		*p_token_cache,
 				a_token_set_array	stop_tokens)
 /*
 Cache a compound statement (i.e., "{...}") into p_token_cache.

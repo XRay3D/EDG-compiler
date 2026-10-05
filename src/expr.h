@@ -645,6 +645,81 @@ extern void scan_previously_decl_iterator_name(
 extern void scan_range_based_for_expression(a_statement_ptr   statement,
                                             a_source_position *expr_position);
 
+/*
+The kinds of expansion statements ([stmt.expand]).
+*/
+typedef enum an_expansion_stmt_kind {
+  esk_none,		/* Not yet determined (or an error). */
+  esk_enumerating,	/* The expansion-initializer is an expansion-init-list. */
+  esk_iterating,	/* The expansion-initializer is expansion-iterable. */
+  esk_destructuring	/* Otherwise (structured binding protocol). */
+} an_expansion_stmt_kind;
+
+/*
+Information describing how an expansion statement ("template for") is to be
+expanded.  It is filled in by scan_expansion_initializer and consumed by
+init_expansion_variable (once per expansion).
+*/
+typedef struct an_expansion_plan {
+  an_expansion_stmt_kind
+		kind;	/* The kind of expansion statement. */
+  a_boolean	is_dependent;
+			/* TRUE if the expansion-initializer is template
+			   dependent (so the statement cannot be expanded in
+			   the current context). */
+  a_boolean	err;	/* TRUE if an error was diagnosed. */
+  a_boolean	decl_is_constexpr;
+			/* TRUE if "constexpr" appears in the decl-specifiers
+			   of the for-range-declaration. */
+  a_targ_size_t	n;	/* The number of expansions. */
+  a_source_position
+		pos;	/* The position of the expansion-initializer. */
+  a_token_sequence_number
+		tsn;	/* The token sequence number of the first token of
+			   the expansion-initializer. */
+  an_init_component_ptr
+		list;	/* For esk_enumerating: the braced list. */
+  an_il_entity_list_entry_ptr
+		elements;
+			/* For esk_enumerating: the variables bound to the
+			   elements of the expansion-init-list, in order (NULL
+			   entries for elements that could not be bound). */
+  a_variable_ptr
+		range;	/* For esk_iterating and esk_destructuring: the
+			   variable bound to the expansion-initializer. */
+  a_variable_ptr
+		range_object;
+			/* For esk_iterating when the expansion-initializer is
+			   a prvalue: the variable that holds the result
+			   object, to which "range" is bound. */
+  a_variable_ptr
+		begin,
+		end;	/* For esk_iterating: the "begin"/"end" variables. */
+  a_type_ptr	range_type;
+			/* For esk_destructuring: the (unreferenced) type of
+			   the expansion-initializer. */
+  a_boolean	array_case,
+		tuple_case,
+		struct_case;
+			/* For esk_destructuring: which protocol applies. */
+  a_field_ptr	first_field;
+			/* For esk_destructuring (struct_case): the first
+			   field to bind to. */
+} an_expansion_plan;
+
+extern void scan_expansion_initializer(a_boolean          decl_is_constexpr,
+                                       a_boolean          defer_expansion,
+                                       an_expansion_plan  *plan);
+
+extern void init_expansion_variable(an_expansion_plan   *plan,
+                                    a_targ_size_t       i,
+                                    a_variable_ptr      var,
+                                    a_decl_parse_state  *dps);
+
+extern void init_dependent_expansion_variable(a_variable_ptr  var);
+
+extern void free_expansion_plan(an_expansion_plan  *plan);
+
 extern
 a_boolean call_via_reflections(a_reflection_value             *target_rv,
                                Dyn_array<a_reflection_value>  *arg_rvs,

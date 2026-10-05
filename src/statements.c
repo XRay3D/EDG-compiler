@@ -536,6 +536,7 @@ dump_control_flow has been enabled at the command line.
     case ssk_do:         str = "do";         break;
     case ssk_for:        str = "for";        break;
     case ssk_range_based_for: str = "range-based-for"; break;
+    case ssk_expansion_for: str = "expansion-for"; break;
     case ssk_try_block:  str = "try_block";  break;
 #if MICROSOFT_EXTENSIONS_ALLOWED
     case ssk_for_each:   str = "for each";   break;
@@ -2133,18 +2134,81 @@ start_potential_decl_statement and reclaim associated unused memory.
 }  /* end_potential_decl_statement */
 
 
-static void for_range_declaration(a_decl_parse_state  *dps)
+void declare_synthesized_variable(a_variable_ptr  vp)
 /*
-Parse the for-range-declaration portion of a range-based-for statement.
-Initialize and update *dps to reflect the declaration state (e.g., dps->sym
-is set to the symbol pointer of the variable just scanned; it may be NULL in
-some error cases).
+Create a declaration statement for the synthesized local variable vp.  Such a
+variable is ordinarily introduced by a declaration in the source, and back
+ends rely on the corresponding stmk_decl statement to emit its declaration.
+This is used for the exposition-only variables of an expansion statement
+([stmt.expand]), which have no counterpart in the source.  It must be called
+before the initializer of vp is recorded.
+*/
+{
+  a_statement_ptr              sp;
+  an_il_entity_list_entry_ptr  entry;
+
+  if (vp == NULL) return;
+  /* The variable is initialized where it is declared, and back ends that
+     regenerate source must give it a name of their own (it has none). */
+  vp->has_explicit_initializer = TRUE;
+  vp->is_synthesized_declared_variable = TRUE;
+#if GENERATE_SOURCE_SEQUENCE_LISTS
+  if (vp->declared_type == NULL) {
+    /* Back ends that regenerate source need the type and storage class as
+       they appeared in the declaration; this variable has no declaration in
+       the source. */
+    vp->declared_type = vp->type;
+    vp->declared_storage_class =
+             var_has_static_or_thread_storage_duration(vp) ?
+               vp->storage_class : (a_storage_class)sc_unspecified;
+  }  /* if */
+#endif /* GENERATE_SOURCE_SEQUENCE_LISTS */
+  sp = add_statement(stmk_decl, /*compiler_generated=*/TRUE);
+#if GENERATE_SOURCE_SEQUENCE_LISTS
+  if (!source_sequence_entries_disallowed) {
+    /* The entry is simply appended: unlike an ordinary declaration
+       statement, this one is not preceded by a declaration vs. expression
+       disambiguation whose entries it would have to be moved ahead of. */
+    add_to_source_sequence_list((char *)sp, (an_il_entry_kind)iek_statement);
+    add_to_source_sequence_list((char *)vp, (an_il_entry_kind)iek_variable);
+  }  /* if */
+#endif /* GENERATE_SOURCE_SEQUENCE_LISTS */
+  entry = alloc_il_entity_list_entry();
+  entry->entity.kind = (an_il_entry_kind)iek_variable;
+  entry->entity.ptr = (char *)vp;
+  entry->next = NULL;
+  sp->variant.decl.entities = entry;
+  if (var_has_static_or_thread_storage_duration(vp)) {
+    sp->variant.decl.has_static_or_thread_variable = TRUE;
+  }  /* if */
+}  /* declare_synthesized_variable */
+
+
+static void for_range_declaration_full(a_decl_parse_state  *dps,
+                                       a_boolean           check_specifiers)
+/*
+Parse the for-range-declaration portion of a range-based-for statement or of
+an expansion statement.  Initialize and update *dps to reflect the
+declaration state (e.g., dps->sym is set to the symbol pointer of the
+variable just scanned; it may be NULL in some error cases).  The constraints
+on the decl-specifiers are checked only if check_specifiers is TRUE; an
+expansion statement scans the same for-range-declaration once per expansion,
+and those diagnostics are issued only for the first of them.
 */
 {
   init_decl_parse_state(dps);
   dps->range_based_for = TRUE;
   scan_nonmember_declaration(dps, (a_source_range *)NULL);
-  check_for_range_declaration(dps);
+  if (check_specifiers) check_for_range_declaration(dps);
+}  /* for_range_declaration_full */
+
+
+static void for_range_declaration(a_decl_parse_state  *dps)
+/*
+Parse the for-range-declaration portion of a range-based-for statement.
+*/
+{
+  for_range_declaration_full(dps, /*check_specifiers=*/TRUE);
 }  /* for_range_declaration */
 
 
@@ -3521,6 +3585,57 @@ In strict C mode, the variant using "__asm" is accepted.
 }  /* asm_statement */
 
 
+STATIC_THREAD a_boolean
+		diagnose_expansion_stmt_body = TRUE;
+			/* FALSE while an expansion of an expansion statement
+			   other than the first one is being scanned.  The
+			   tokens of the body of an expansion statement are
+			   scanned once per expansion, so diagnostics that
+			   depend only on those tokens (and not on the element
+			   the expansion is for) must be issued just once. */
+
+
+static a_boolean in_expansion_statement_body(void)
+/*
+Return TRUE if the statement being scanned is enclosed by the body of an
+expansion statement of the function being scanned.  (The structured
+statement stack is per-function, so an expansion statement that encloses the
+lambda expression whose body is being scanned is not considered; that
+matches the rule that the body of an expansion statement is a template
+definition, of which such a lambda body is not a part.)
+*/
+{
+  a_struct_stmt_stack_entry_ptr  sssep = &struct_stmt_stack[depth_stmt_stack];
+  a_boolean                      result = FALSE;
+
+  while (sssep != &struct_stmt_stack[0] && !result) {
+    if (sssep->kind == (a_struct_stmt_kind)ssk_expansion_for) result = TRUE;
+    sssep--;
+  }  /* while */
+  return result;
+}  /* in_expansion_statement_body */
+
+
+static a_boolean expansion_stmt_encloses_switch(
+                                a_struct_stmt_stack_entry_ptr  switch_sssep)
+/*
+Return TRUE if an expansion statement is nested between the statement being
+scanned and the switch statement described by switch_sssep.  A case label of
+such a switch statement would require a branch into the body of the
+expansion statement, which is not allowed ([stmt.label]).
+*/
+{
+  a_struct_stmt_stack_entry_ptr  sssep = &struct_stmt_stack[depth_stmt_stack];
+  a_boolean                      result = FALSE;
+
+  while (sssep > switch_sssep && !result) {
+    if (sssep->kind == (a_struct_stmt_kind)ssk_expansion_for) result = TRUE;
+    sssep--;
+  }  /* while */
+  return result;
+}  /* expansion_stmt_encloses_switch */
+
+
 static a_struct_stmt_stack_entry_ptr find_enclosing_struct_stmt(
                                                      a_boolean find_switch,
                                                      a_boolean find_loop)
@@ -3544,7 +3659,11 @@ was found.
       goto found;
     } else if (find_loop &&
                (kind == ssk_while || kind == ssk_do || kind == ssk_for ||
-                kind == ssk_range_based_for
+                kind == ssk_range_based_for ||
+                /* A "break" terminates the innermost enclosing expansion
+                   statement and a "continue" proceeds to its next expansion
+                   ([stmt.break], [stmt.cont]). */
+                kind == ssk_expansion_for
 #if MICROSOFT_EXTENSIONS_ALLOWED
                 || kind == ssk_for_each
 #endif /* MICROSOFT_EXTENSIONS_ALLOWED */
@@ -5530,6 +5649,363 @@ can be NULL.
 }  /* for_init_statement */
 
 
+static a_boolean cached_declaration_is_constexpr(a_token_cache  *cache)
+/*
+Return TRUE if the cached tokens of a for-range-declaration contain a
+top-level "constexpr" decl-specifier.  This is needed before the declaration
+itself is parsed, because "constexpr" on the for-range-declaration of an
+expansion statement affects the exposition-only variable to which the
+expansion-initializer is bound ([stmt.expand]).
+*/
+{
+  a_boolean  result = FALSE;
+  int        depth = 0;
+
+  for (a_token_cache_iterator it = cache->begin();
+       it != cache->end() && !result;
+       ++it) {
+    if ((*it)->is(tok_lparen) || (*it)->is(tok_lbracket) ||
+        (*it)->is(tok_lbrace)) {
+      depth++;
+    } else if ((*it)->is(tok_rparen) || (*it)->is(tok_rbracket) ||
+               (*it)->is(tok_rbrace)) {
+      depth--;
+    } else if (depth == 0 && (*it)->is(tok_constexpr)) {
+      result = TRUE;
+    }  /* if */
+  }  /* for */
+  return result;
+}  /* cached_declaration_is_constexpr */
+
+
+static void cache_for_range_declaration(a_token_cache  *cache)
+/*
+Cache the tokens of the for-range-declaration of an expansion statement,
+through the ":" that follows it (which is consumed).  The tokens are replayed
+once per expansion, so that the variable declared by the for-range-
+declaration is declared afresh in each expansion (with its own deduced type
+and, when it is "constexpr", its own constant value).
+*/
+{
+  a_token_set_array  stop_tokens;
+  unsigned int       question_count = 0;
+  a_boolean          done = FALSE;
+
+  clear_token_set_array(stop_tokens);
+  incr_token_set_array_element(stop_tokens, tok_quest_mark);
+  incr_token_set_array_element(stop_tokens, tok_colon);
+  incr_token_set_array_element(stop_tokens, tok_semicolon);
+  incr_token_set_array_element(stop_tokens, tok_rparen);
+  while (!done) {
+    cache_token_stream(cache, stop_tokens);
+    if (curr_token == tok_quest_mark) {
+      /* A conditional expression; the matching ":" does not end the
+         declaration. */
+      question_count++;
+    } else if (curr_token == tok_colon && question_count != 0) {
+      question_count--;
+    } else {
+      /* The ":" that ends the for-range-declaration, or an error case. */
+      done = TRUE;
+    }  /* if */
+    if (!done) {
+      cache_curr_token(cache);
+      (void)get_token();
+    }  /* if */
+  }  /* while */
+  /* Cache the ":" and advance past it, so that the declaration scan is
+     terminated when the tokens are replayed. */
+  if (curr_token == tok_colon) {
+    cache_curr_token(cache);
+    (void)get_token();
+  }  /* if */
+}  /* cache_for_range_declaration */
+
+
+static void scan_expansion_init_statement(void)
+/*
+Scan the optional init-statement of an expansion statement.  Unlike the
+init-statement of a range-based for statement, this one needs no scope of its
+own: the enclosing block scope of the expansion statement has already been
+pushed and lasts for the whole statement.
+*/
+{
+  an_il_entity_list_entry_ptr  entity_list;
+
+  start_potential_decl_statement(&entity_list);
+  if (alias_decl_next() || is_decl_not_expr(DFS_REAL_DECLARATOR_ALLOWED)) {
+    if (curr_token == tok_using && !cpp23_mode) {
+      pos_warning(ec_nonstandard_alias_declaration_context, &pos_curr_token);
+    }  /* if */
+    decl_statement(/*marked_as_gnu_extension=*/FALSE,
+                   /*p_okay_in_constexpr_body=*/NULL);
+  } else {
+    if (curr_token != tok_semicolon) {
+      expression_statement(/*marked_as_gnu_extension=*/FALSE);
+    }  /* if */
+    (void)required_token(tok_semicolon, ec_exp_semicolon);
+  }  /* if */
+  end_potential_decl_statement();
+  end_stmt_sequence(&struct_stmt_stack_top());
+}  /* scan_expansion_init_statement */
+
+
+static void scan_one_expansion(an_expansion_plan  *plan,
+                               a_targ_size_t      i,
+                               a_token_cache      *decl_cache,
+                               a_token_cache      *body_cache,
+                               a_boolean          is_dependent)
+/*
+Scan one expansion of an expansion statement: a block containing the
+for-range-declaration (initialized with the i-th element of the
+expansion-initializer) and the body.  The tokens of both are replayed from
+decl_cache and body_cache.  *plan describes the expansion statement.  When
+is_dependent is TRUE, the expansion-initializer is template dependent, so no
+initializer is recorded for the declared variable and the body is scanned as
+a dependent statement (just once).
+*/
+{
+  a_statement_ptr              block, decl_stmt;
+  a_decl_parse_state           dps;
+  a_variable_ptr               var = NULL;
+  an_il_entity_list_entry_ptr  entity_list = NULL;
+
+  /* Each expansion gets its own "continue" label, so that a "continue"
+     proceeds to the next expansion. */
+  struct_stmt_stack_top().continue_label = NULL;
+  struct_stmt_stack_top().continue_statements = NULL;
+  /* Start the block that contains this expansion. */
+  block = start_block_statement(/*generated_statement=*/TRUE,
+                                /*is_statement_expr=*/FALSE,
+                                (an_object_lifetime_ptr)NULL);
+  block->variant.block.extra_info->is_expansion = TRUE;
+  /* Scan the for-range-declaration from the cached tokens.  It is scanned as
+     an ordinary declaration statement, so that the declaration of this
+     expansion's variable is represented in the IL the way the equivalent
+     block scope declaration would be. */
+  decl_stmt = add_statement(stmk_decl, /*compiler_generated=*/FALSE);
+  struct_stmt_stack_top().record_declared_entities = TRUE;
+  struct_stmt_stack_top().p_declared_entities = &entity_list;
+  entity_list = NULL;
+#if GENERATE_SOURCE_SEQUENCE_LISTS
+  if (!source_sequence_entries_disallowed) {
+    add_to_source_sequence_list((char *)decl_stmt,
+                                (an_il_entry_kind)iek_statement);
+  }  /* if */
+#endif /* GENERATE_SOURCE_SEQUENCE_LISTS */
+  add_stop_token(tok_colon);
+  rescan_copy_of_cache(decl_cache);
+  for_range_declaration_full(&dps,
+                             /*check_specifiers=*/diagnose_expansion_stmt_body);
+  (void)required_token(tok_colon, ec_exp_colon);
+  remove_stop_token(tok_colon);
+  if (dps.sym != NULL && symbol_is(dps.sym, sk_variable)) {
+    var = dps.sym->variant.variable.ptr;
+    if (var != NULL) var->is_enhanced_for_iterator = TRUE;
+  }  /* if */
+  /* Record the initializer of the declared variable. */
+  if (is_dependent) {
+    init_dependent_expansion_variable(var);
+  } else {
+    init_expansion_variable(plan, i, var, &dps);
+  }  /* if */
+  if (dps.is_struct_binding_decl) {
+    define_struct_bindings(&dps);
+  }  /* if */
+  /* Record the entities declared by this expansion in its declaration
+     statement. */
+  struct_stmt_stack_top().p_declared_entities = NULL;
+  struct_stmt_stack_top().record_declared_entities = FALSE;
+  decl_stmt->variant.decl.entities = entity_list;
+  /* Scan the body from the cached tokens. */
+  rescan_copy_of_cache(body_cache);
+  (void)compound_statement(/*at_function_level=*/FALSE,
+                           /*explicit_return_type=*/FALSE,
+                           /*is_catch_clause=*/FALSE,
+                           /*is_statement_expr=*/FALSE);
+  finish_block_statement(block);
+  /* Define the "continue" label of this expansion, if it was used.  It is
+     placed after the block of this expansion, i.e., at the end of the
+     compound-statement of the current expansion ([stmt.cont]). */
+  define_continue_label();
+}  /* scan_one_expansion */
+
+
+static void expansion_statement(void)
+/*
+Scan an expansion statement ([stmt.expand], C++26 P1306R5) and add it to the
+current statement sequence.  The syntax is:
+
+8.6  expansion-statement:
+	template for ( init-statement    for-range-declaration
+                                      opt
+                         : expansion-initializer ) compound-statement
+
+     expansion-initializer:
+	expression
+	expansion-init-list
+
+     expansion-init-list:
+	{ expression-list    }
+                          opt
+
+The compound-statement is instantiated once per element of the
+expansion-initializer, each instantiation having its own copy of the
+for-range-declaration.  The statement is represented in the IL by a block of
+the form
+
+  { // The scope of the init-statement and of the exposition-only variables.
+    init-statement
+    <exposition-only variables, if any>
+    { for-range-declaration = <element 0>; compound-statement }
+    <continue label for expansion 0, if needed>
+    ...
+    { for-range-declaration = <element N-1>; compound-statement }
+    <continue label for expansion N-1, if needed>
+  }
+  <break label, if needed>
+
+so no new kind of IL statement is needed.  The tokens of the
+for-range-declaration and of the compound-statement are cached and replayed
+once per expansion.  When the expansion-initializer is template dependent
+(i.e., in a template definition), the number of expansions is not yet known;
+the declaration and the body are then scanned just once, as a dependent
+statement, and the expansion happens when the enclosing template is
+instantiated (at which point these tokens are scanned again).
+*/
+{
+  a_statement_ptr         sp;
+  a_scope_ptr             outer_scope;
+  a_scope_pointers_block  outer_pointers_block;
+  an_expansion_plan       plan;
+  a_label_ptr             break_label = NULL;
+  a_source_position       stmt_pos = pos_curr_token;
+  a_targ_size_t           i;
+  a_boolean               body_is_compound;
+  /* In a template definition (i.e., a prototype instantiation), the
+     expansion is not performed: the tokens of the expansion statement are
+     scanned again when the template is instantiated, and the expansion is
+     performed then.  This also avoids synthesizing the expressions the
+     expansion requires in a context in which the outcome of overload
+     resolution would be recorded for the (nonexistent) instantiation. */
+  a_boolean               defer_expansion = is_template_dependent_context() &&
+                                            !is_nested_in_real_instantiation();
+  a_scanning_token_cache  decl_cache(/*is_reusable=*/FALSE);
+  a_scanning_token_cache  body_cache(/*is_reusable=*/FALSE);
+
+  db_enter(3, "expansion_statement");
+  if (!expansion_statements_enabled) {
+    /* Expansion statements are a C++26 feature. */
+    pos_warning(ec_expansion_statements_is_cpp26, &pos_curr_token);
+  }  /* if */
+  sp = add_statement(stmk_block, /*compiler_generated=*/FALSE);
+  sp->variant.block.extra_info->is_expansion_statement = TRUE;
+  stmt_update_source_sequence_list(sp);
+  /* Do processing required for any pragmas that are bound to the current
+     statement. */
+  process_curr_construct_pragmas((a_symbol_ptr)NULL, sp);
+  /* Push an entry on the structured statement stack.  A "break" in the body
+     terminates the whole expansion statement and a "continue" proceeds to
+     the next expansion, so the entry must be found by break and continue
+     statements. */
+  push_stmt_stack(ssk_expansion_for, sp, (an_object_lifetime_ptr)NULL);
+  /* Consume the "template" and "for" tokens. */
+  check_assertion_str(curr_token == tok_template,
+                      "expansion_statement: expected template");
+  (void)get_token();
+  check_assertion_str(curr_token == tok_for,
+                      "expansion_statement: expected for");
+  (void)get_token();
+  (void)required_token(tok_lparen, ec_exp_lparen);
+  add_stop_token(tok_rparen);
+  /* Push the scope that contains the init-statement and the exposition-only
+     variables.  It lasts for the whole expansion statement, and is the scope
+     associated with the block representing the statement. */
+  outer_scope = start_fabricated_block_scope_for_enhanced_for(
+                                                      &outer_pointers_block);
+  sp->variant.block.extra_info->assoc_scope = outer_scope;
+  /* Scan the optional init-statement. */
+  if (find_for_loop_separator() == tok_semicolon) {
+    add_stop_token(tok_semicolon);
+    scan_expansion_init_statement();
+    remove_stop_token(tok_semicolon);
+  }  /* if */
+  /* Cache the for-range-declaration (through the ":").  It cannot be scanned
+     yet: its name must not be visible in the expansion-initializer, and it
+     is declared afresh in each expansion. */
+  cache_for_range_declaration(decl_cache.ptr());
+  /* Scan the expansion-initializer and determine how the statement is to be
+     expanded. */
+  scan_expansion_initializer(cached_declaration_is_constexpr(decl_cache.ptr()),
+                             /*defer_expansion=*/defer_expansion, &plan);
+  (void)required_token(tok_rparen, ec_exp_rparen);
+  remove_stop_token(tok_rparen);
+  /* Cache the body. */
+  body_is_compound = (curr_token == tok_lbrace);
+  if (!body_is_compound) {
+    /* The body of an expansion statement must be a compound statement.
+       Scan it anyway (once), for error recovery. */
+    pos_error(ec_expansion_stmt_body_must_be_compound, &pos_curr_token);
+  } else {
+    a_token_set_array  stop_tokens;
+    clear_token_set_array(stop_tokens);
+    cache_compound_stmt(body_cache.ptr(), stop_tokens);
+    /* cache_compound_stmt leaves the current token at the "}". */
+    if (curr_token == tok_rbrace) (void)get_token();
+  }  /* if */
+  if (!body_is_compound) {
+    dependent_statement();
+  } else if (plan.is_dependent) {
+    /* The expansion cannot be done yet.  Scan the declaration and the body
+       once, as a dependent statement. */
+    scan_one_expansion(&plan, /*i=*/0, decl_cache.ptr(), body_cache.ptr(),
+                       /*is_dependent=*/TRUE);
+  } else {
+    Value_saver<a_boolean>  saved_diagnose(&diagnose_expansion_stmt_body,
+                                           TRUE);
+    /* Note that when there are no expansions the body is not scanned at
+       all, so the diagnostics that would be produced for it (other than
+       those produced while its tokens were cached) are not issued. */
+    for (i = 0; i != plan.n; i++) {
+      /* Diagnostics that depend only on the tokens of the expansion
+         statement, and not on the element being expanded, are issued only
+         while the first expansion is scanned. */
+      diagnose_expansion_stmt_body = (i == 0);
+      scan_one_expansion(&plan, i, decl_cache.ptr(), body_cache.ptr(),
+                         /*is_dependent=*/FALSE);
+    }  /* for */
+  }  /* if */
+  free_expansion_plan(&plan);
+  /* If there is a break label, create its associated definition now, so that
+     the object lifetime associated with the label is that of the scope
+     enclosing the expansion statement (see the corresponding comment in
+     for_statement). */
+  { a_struct_stmt_stack_entry_ptr  sssep = &struct_stmt_stack_top();
+    break_label = sssep->break_label;
+    if (break_label != NULL) {
+      define_implicit_label(break_label, sssep->break_statements,
+                            /*add_to_stmt_list=*/FALSE);
+      sssep->break_label = NULL;
+    }  /* if */
+  }
+  /* Pop the scope that was pushed for the init-statement and the
+     exposition-only variables. */
+  sp->variant.block.extra_info->end_of_block_reachable =
+                                                 curr_reachability.reachable;
+  finish_block_scope_for_enhanced_for();
+  /* Pop the structured statement stack. */
+  pop_stmt_stack();
+  if (break_label != NULL) {
+    /* The code following the expansion statement is reachable through the
+       break. */
+    set_reachable(curr_reachability);
+    add_statement_list(break_label->exec_stmt, /*reachable=*/TRUE);
+  }  /* if */
+  sp->position = stmt_pos;
+  db_exit();
+}  /* expansion_statement */
+
+
 STATIC_THREAD a_boolean
 		already_diagnosed_init_in_range_for;
 			/* Flag indicating whether a non-standard init
@@ -7472,6 +7948,7 @@ GNU also allows the "case range" form:
   a_source_position             case_position, constant_position;
   a_boolean                     save_reachability =
                                                    curr_reachability.reachable;
+  a_boolean                     in_expansion_stmt_body = FALSE;
   int                           switch_depth;
 
   db_enter(4, "case_label");
@@ -7482,11 +7959,25 @@ GNU also allows the "case range" form:
      the structured statement stack. */
   sssep = find_enclosing_struct_stmt(/*find_switch=*/TRUE,
                                      /*find_loop=*/FALSE);
+  if (sssep != NULL && expansion_stmt_encloses_switch(sssep)) {
+    /* The case label would be a branch into the body of an expansion
+       statement ([stmt.label]). */
+    if (diagnose_expansion_stmt_body) {
+      pos_error(ec_case_label_in_expansion_stmt, &error_position);
+    }  /* if */
+    sssep = NULL;
+    in_expansion_stmt_body = TRUE;
+  }  /* if */
   if (sssep != NULL) {
     /* Assume the case is reachable if the switch is reachable. */
     merge_reachability(&sssep->start_reachable, &curr_reachability);
     switch_type = sssep->type;
     switch_depth = (int)(sssep - struct_stmt_stack);
+  } else if (in_expansion_stmt_body) {
+    /* A diagnostic has already been issued. */
+    set_reachable(curr_reachability);
+    switch_type = error_type();
+    switch_depth = 0;
   } else {
     /* We are not inside a switch statement. */
     pos_error(ec_case_label_must_be_in_switch, &error_position);
@@ -7560,6 +8051,7 @@ Scan a default case label definition.  The syntax is:
 {
   a_struct_stmt_stack_entry_ptr sssep;
   a_source_position             label_position;
+  a_boolean                     in_expansion_stmt_body = FALSE;
 
   db_enter(4, "default_label");
 
@@ -7578,6 +8070,15 @@ Scan a default case label definition.  The syntax is:
      the structured statement stack. */
   sssep = find_enclosing_struct_stmt(/*find_switch=*/TRUE,
                                      /*find_loop=*/FALSE);
+  if (sssep != NULL && expansion_stmt_encloses_switch(sssep)) {
+    /* The default label would be a branch into the body of an expansion
+       statement ([stmt.label]). */
+    if (diagnose_expansion_stmt_body) {
+      pos_error(ec_case_label_in_expansion_stmt, &label_position);
+    }  /* if */
+    sssep = NULL;
+    in_expansion_stmt_body = TRUE;
+  }  /* if */
   if (sssep != NULL) {
     a_statement_ptr          sp;
     a_switch_case_entry_ptr  scep = alloc_switch_case_entry();
@@ -7594,7 +8095,10 @@ Scan a default case label definition.  The syntax is:
     scep->reachable_by_fall_through = curr_reachability.reachable;
     record_switch_case_entry(scep, sssep);
     merge_reachability(&sssep->start_reachable, &curr_reachability);
-  }  else {
+  } else if (in_expansion_stmt_body) {
+    /* A diagnostic has already been issued. */
+    set_reachable(curr_reachability);
+  } else {
     /* We are not inside a switch statement. */
     pos_error(ec_default_label_must_be_in_switch, &label_position);
     set_reachable(curr_reachability);
@@ -7618,6 +8122,20 @@ it is followed by a colon.)
 
   sssep->prefix_attributes = NULL;
   sssep->contains_user_label = TRUE;
+  if (in_expansion_statement_body()) {
+    /* An identifier label may not be enclosed by an expansion statement
+       ([stmt.label]); it would be defined once per expansion.  The
+       diagnostic is issued only while the first expansion is being scanned
+       (the same tokens are scanned once per expansion). */
+    if (diagnose_expansion_stmt_body) {
+      pos_error(ec_label_in_expansion_stmt, &label_pos);
+    }  /* if */
+    /* Skip the label, leaving an empty statement in its place. */
+    (void)get_token();
+    (void)required_token(tok_colon, ec_exp_colon);
+    db_exit();
+    return;
+  }  /* if */
   /* Scan the label identifier, and enter it into the symbol table if
      needed. */
   label = scan_label(/*is_definition=*/TRUE, /*is_declaration=*/FALSE);
@@ -7875,6 +8393,16 @@ rescan_statement:
       /* For statement and range-based-for ([stmt.ranged]). */
       for_statement();
       break;
+    case tok_template:
+      if (!C_mode() && next_token() == tok_for) {
+        /* Expansion statement ([stmt.expand]). */
+        expansion_statement();
+        if (!strict_ansi_mode) can_appear_in_constexpr_body = TRUE;
+        break;
+      }  /* if */
+      /* Otherwise, this is (probably erroneously) a template declaration;
+         let the code that handles declarations deal with it. */
+      goto expr_statement;
 #if MICROSOFT_EXTENSIONS_ALLOWED
     case tok_for_each:
       /* "for each" statement (ECMA-372 section 16.2.1). */

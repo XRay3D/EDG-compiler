@@ -4181,6 +4181,9 @@ extern a_shared_token build_tok_resolved_type(a_type_ptr              type,
 
 /* Save the current token in a token cache. */
 extern void cache_curr_token(a_token_cache *cache);
+
+extern void cache_compound_stmt(a_token_cache		*p_token_cache,
+				a_token_set_array	stop_tokens);
 extern void cache_curr_token_fresh(a_token_cache *cache);
 /* Save a token stream in a token cache. */
 extern void cache_token_stream(a_token_cache      *cache,

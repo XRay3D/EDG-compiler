@@ -256,6 +256,7 @@ enum a_struct_stmt_kind {
   ssk_do,		/* do {} while (...); statement. */
   ssk_for,		/* for (...; ...; ...) {} statement. */
   ssk_range_based_for,  /* for (... : ...) {} statement. */
+  ssk_expansion_for,	/* template for (... : ...) {} statement. */
 #if MICROSOFT_EXTENSIONS_ALLOWED
   ssk_for_each,		/* for each (...) {} statement. */
   ssk_microsoft_try,	/* Microsoft try-except or try-finally. */
@@ -512,6 +513,8 @@ extern a_statement_ptr add_statement_at_stmt_pos(
 extern void update_init_statement_control_flow(a_statement_ptr  sp);
 
 extern void record_trivial_init_control_flow(a_variable_ptr  var);
+
+extern void declare_synthesized_variable(a_variable_ptr  vp);
 
 extern void set_vla_size_statement(a_vla_dimension_ptr  vdp,
                                    a_source_position    *pos);

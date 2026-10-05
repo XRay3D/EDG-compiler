@@ -64,6 +64,9 @@ extern void initializer(a_decl_parse_state  *state,
                         a_boolean           *incomplete_type_error_reported,
                         a_decl_pos_block    *decl_pos_block);
 
+extern void gen_variable_dynamic_init(a_variable_ptr      vp,
+                                      a_dynamic_init_ptr  dip);
+
 extern
 void record_struct_binding_expr_for_tuple_element(a_variable_ptr     binding,
                                                   an_init_component  *icp);

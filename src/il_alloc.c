@@ -2667,6 +2667,7 @@ Clear the fields of the given variable to default values.
 #endif /* DO_IL_LOWERING */
   vp->is_compound_literal         = FALSE;
   vp->has_explicit_initializer      = FALSE;
+  vp->is_synthesized_declared_variable = FALSE;
   vp->has_parenthesized_initializer = FALSE;
   vp->has_direct_braced_initializer = FALSE;
 #if MICROSOFT_EXTENSIONS_ALLOWED || GNU_EXTENSIONS_ALLOWED
@@ -4187,6 +4188,8 @@ fields to default values.
       bp->end_of_block_reachable = TRUE;
       bp->is_statement_expression = FALSE;
       bp->implicit_scope_not_allowed = FALSE;
+      bp->is_expansion_statement = FALSE;
+      bp->is_expansion = FALSE;
 #if UPC_EXTENSIONS_ALLOWED
       bp->upc_access_method      = (a_upc_access_method)upc_access_unspecified;
 #endif /* UPC_EXTENSIONS_ALLOWED */

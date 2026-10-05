@@ -11695,6 +11695,13 @@ typedef struct a_variable {
 			   member (C++/CLI only).  (Always FALSE for entries
 			   that do not represent a static data member.) */
 #endif /* MICROSOFT_EXTENSIONS_ALLOWED */
+  a_bit_field	is_synthesized_declared_variable:1;
+			/* TRUE if this variable has no counterpart in the
+			   source but is nevertheless represented by a
+			   declaration statement (see
+			   declare_synthesized_variable).  Such a variable has
+			   no name, so a back end that regenerates source must
+			   fabricate one for it. */
   a_bit_field	is_enhanced_for_iterator:1;
 			/* TRUE for the iterator variable of a for-each
 			   loop (in Microsoft or C++/CLI modes) or a
@@ -15892,6 +15899,19 @@ typedef struct a_block {
 			   merely to allow grouping some statements together
 			   and a scope should not be added to it (e.g., to
 			   contain generated temporaries). */
+  a_bit_field	is_expansion_statement:1;
+			/* TRUE if this block represents an expansion statement
+			   ([stmt.expand]), i.e., it contains the
+			   init-statement, the exposition-only variables, and
+			   one block per expansion.  A "break" in the body of
+			   an expansion statement terminates the whole
+			   expansion statement, i.e., this block. */
+  a_bit_field	is_expansion:1;
+			/* TRUE if this block represents one expansion of an
+			   expansion statement ([stmt.expand]).  A "continue"
+			   in the body of an expansion statement passes control
+			   to the end of the current expansion, i.e., of this
+			   block. */
 #if UPC_EXTENSIONS_ALLOWED
   a_upc_access_method
 		upc_access_method;

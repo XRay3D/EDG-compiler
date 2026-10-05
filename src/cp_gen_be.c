@@ -24540,7 +24540,8 @@ this one is such a continuation.
      anonymous union variables. */
   gen_general_declaration_using_type(var_type,
                                      (has_name_before_mangling(var) ||
-                                      var->is_struct_binding_container) ?
+                                      var->is_struct_binding_container ||
+                                      var->is_synthesized_declared_variable) ?
                                                      &var->source_corresp :
                                                      NULL,
                                      iek_variable, sec_decl, TQ_NONE,

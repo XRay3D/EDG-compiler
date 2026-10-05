@@ -33879,10 +33879,21 @@ operator== and operator!=, and assumes the expression is evaluated.
 }  /* make_eq_comparison */
 
 
-static void set_variable_initializer(a_variable_ptr vp,
-                                     an_operand_ptr  operand)
+static void set_variable_initializer_full(a_variable_ptr vp,
+                                          an_operand_ptr operand,
+                                          a_boolean      gen_init_statement,
+                                          a_boolean      defer_init_statement)
 /*
-Set the initializer for the variable vp from the operand "operand".
+Set the initializer for the variable vp from the operand "operand".  If
+gen_init_statement is TRUE, an stmk_init statement that performs the
+initialization at the current point in the code is also generated; that is
+needed when nothing else in the IL causes the initialization to happen (as
+is the case for the variable declared by the for-range-declaration of an
+expansion statement, whose initialization is not implied by any enclosing
+loop statement).  If defer_init_statement is TRUE, the caller will generate
+that statement later (by calling gen_variable_dynamic_init), so the
+end-of-lifetime destruction is not recorded here (gen_variable_dynamic_init
+does that).
 */
 {
   a_dynamic_init_ptr  dip;
@@ -33924,13 +33935,21 @@ Set the initializer for the variable vp from the operand "operand".
   }  /* if */
   wrap_up_dynamic_init_full_expression(dip);
   if (dip != NULL) {
-    vp->init_kind = (an_init_kind)initk_dynamic;
-    vp->initializer.dynamic = dip;
-    dip->variable = vp;
-    record_end_of_lifetime_destruction(
+    if (gen_init_statement) {
+      /* This also sets the variable's initializer and records the end-of-
+         lifetime destruction. */
+      gen_variable_dynamic_init(vp, dip);
+    } else {
+      vp->init_kind = (an_init_kind)initk_dynamic;
+      vp->initializer.dynamic = dip;
+      dip->variable = vp;
+      if (!defer_init_statement) {
+        record_end_of_lifetime_destruction(
             dip,
             /*static_lifetime=*/var_has_static_or_thread_storage_duration(vp),
             /*block_lifetime=*/TRUE);
+      }  /* if */
+    }  /* if */
     if (!vp->compiler_generated && symbol_for(vp) != NULL) {
       /* Record initialization for purposes of analyzing control flow (i.e.,
          whether a goto bypasses required initialization).  Skip this for
@@ -33939,6 +33958,17 @@ Set the initializer for the variable vp from the operand "operand".
     }  /* if */
   }  /* if */
   scope_stack_top().decl_parse_state = saved_dps;
+}  /* set_variable_initializer_full */
+
+
+static void set_variable_initializer(a_variable_ptr vp,
+                                     an_operand_ptr  operand)
+/*
+Set the initializer for the variable vp from the operand "operand".
+*/
+{
+  set_variable_initializer_full(vp, operand, /*gen_init_statement=*/FALSE,
+                                /*defer_init_statement=*/FALSE);
 }  /* set_variable_initializer */
 
 
@@ -48521,6 +48551,15 @@ otherwise, NULL is returned.
 }  /* look_up_named_member_function */
 
 
+STATIC_THREAD a_boolean
+		force_static_enhanced_for_temps;
+			/* TRUE if the "begin"/"end" variables created for an
+			   enhanced-for construct must have static storage
+			   duration.  This is used for iterating expansion
+			   statements, where those variables are
+			   "static constexpr" (see [stmt.expand]). */
+
+
 static a_boolean has_range_based_member_requirements(a_type_ptr type)
 /*
 Returns TRUE if lookups for the "begin" and "end" member functions within the
@@ -49567,7 +49606,7 @@ initializer of *loop_var.
     /* Make the variable and initialize it from the expression just made. */
     *loop_var = alloc_temporary_variable(
                                make_unqualified_type(member_call_operand.type),
-                               /*force_static=*/FALSE);
+                               force_static_enhanced_for_temps);
     set_variable_initializer(*loop_var, &member_call_operand);
   } else {
     result = FALSE;
@@ -51222,7 +51261,7 @@ initializer of *variable.
       /* Make the variable and initialize it with the result of the call
          just made. */
       *variable = alloc_temporary_variable(make_unqualified_type(result.type),
-                                           /*force_static=*/FALSE);
+                                           force_static_enhanced_for_temps);
       set_variable_initializer(*variable, &result);
       passed = TRUE;
     }  /* if */
@@ -51613,6 +51652,968 @@ entries at parse time.  The key normalization matches that routine.
   }  /* if */
   return plan;
 }  /* reflection_range_plan_for_type */
+
+
+#if !STANDALONE_UTILITY_PROGRAM
+
+/*
+Expansion statements ([stmt.expand], C++26 P1306R5):
+
+  template for ( init-statement    for-range-declaration : expansion-initializer )
+                               opt
+    compound-statement
+
+The compound-statement is instantiated once per element of the
+expansion-initializer.  The routines below (used by expansion_statement in
+statements.c) classify the expansion-initializer, determine the number of
+expansions, and produce the initializer of the for-range-declaration for a
+given expansion.
+*/
+
+static a_boolean make_expansion_iterator_operand(a_variable_ptr    begin_var,
+                                                 a_targ_size_t     i,
+                                                 a_source_position *pos,
+                                                 an_operand        *result)
+/*
+Build in *result the expression "begin + i" where begin is the variable
+begin_var.  An overloaded operator+ is used when applicable; otherwise the
+built-in pointer arithmetic is used.  Return TRUE if the expression could be
+built (an error is issued otherwise).
+*/
+{
+  an_operand      operand1, operand2;
+  a_constant_ptr  i_con = local_constant();
+  a_boolean       processed = FALSE, passed = TRUE;
+
+  make_lvalue_variable_operand(begin_var, pos, pos, &operand1,
+                               (a_ref_entry *)NULL);
+  set_integer_constant(i_con, (a_host_large_integer)i,
+                       targ_ptrdiff_t_int_kind);
+  make_constant_operand(i_con, &operand2);
+  release_local_constant(&i_con);
+  if (is_overloadable_first_operand_type(operand1.type)) {
+    check_for_operator_overloading((an_opname_kind)onk_plus,
+                                   /*is_unary_op=*/FALSE,
+                                   /*must_be_member_function=*/FALSE,
+                                   /*try_conversions=*/TRUE,
+                                   /*has_predef_meaning=*/FALSE,
+                                   &operand1, &operand2, pos,
+                                   NO_TOKEN_SEQUENCE_NUMBER,
+                                   (a_nondependent_call_depth)0,
+                                   pos, result, &processed);
+  }  /* if */
+  if (!processed) {
+    /* Try the built-in "pointer + integer" operation. */
+    do_operand_transformations(&operand1, TOPT_NO_OPTIONS);
+    if (is_error_operand(&operand1)) {
+      passed = FALSE;
+    } else if (!is_pointer_type(operand1.type) ||
+               !check_object_pointer_operand(&operand1,
+                                             ec_expr_not_pointer_to_object)) {
+      pos_ty_error(ec_expansion_stmt_not_expandable, pos, operand1.type);
+      passed = FALSE;
+    } else {
+      do_binary_operation(which_binary_operator(tok_plus, operand1.type),
+                          &operand1, &operand2, operand1.type, result,
+                          pos, NO_TOKEN_SEQUENCE_NUMBER);
+    }  /* if */
+  }  /* if */
+  if (passed && is_error_operand(result)) passed = FALSE;
+  if (!passed) make_error_operand(result);
+  return passed;
+}  /* make_expansion_iterator_operand */
+
+
+static a_boolean make_expansion_deref_operand_from_operand(
+                                              an_operand        *iter_operand,
+                                              a_source_position *pos,
+                                              an_operand        *result)
+/*
+Build in *result the expression "*iter" where iter is given by *iter_operand.
+Return TRUE if the expression could be built (an error is issued otherwise).
+*/
+{
+  an_operand  operand1;
+  a_boolean   processed = FALSE, passed = TRUE;
+
+  copy_operand(iter_operand, &operand1);
+  if (is_overloadable_first_operand_type(operand1.type)) {
+    check_for_operator_overloading((an_opname_kind)onk_star,
+                                   /*is_unary_op=*/TRUE,
+                                   /*must_be_member_function=*/FALSE,
+                                   /*try_conversions=*/TRUE,
+                                   /*has_predef_meaning=*/FALSE,
+                                   &operand1, (an_operand *)NULL, pos,
+                                   NO_TOKEN_SEQUENCE_NUMBER,
+                                   (a_nondependent_call_depth)3,
+                                   pos, result, &processed);
+  }  /* if */
+  if (!processed) {
+    if (!is_pointer_type(operand1.type)) {
+      pos_ty_error(ec_missing_indirect_on_range_based_for_type, pos,
+                   operand1.type);
+      passed = FALSE;
+    } else {
+      an_expr_node_ptr  expr;
+      conv_glvalue_to_prvalue(&operand1);
+      expr = add_indirection_to_node(make_node_from_operand(&operand1));
+      make_glvalue_expression_operand(expr, result);
+    }  /* if */
+  }  /* if */
+  if (passed && is_error_operand(result)) passed = FALSE;
+  if (!passed) make_error_operand(result);
+  return passed;
+}  /* make_expansion_deref_operand_from_operand */
+
+
+static void make_expansion_array_element_operand(a_variable_ptr    range,
+                                                 a_targ_size_t     i,
+                                                 a_source_position *pos,
+                                                 an_operand        *result)
+/*
+Build in *result the expression "range[i]", where range is the variable to
+which the expansion-initializer of a destructuring expansion statement over
+an array is bound.
+*/
+{
+  a_constant_ptr    i_con = local_constant();
+  an_expr_node_ptr  range_node, i_node, elem_expr;
+  a_type_ptr        range_type = range->type;
+
+  if (is_any_reference_type(range_type)) {
+    range_type = type_pointed_to(range_type);
+  }  /* if */
+  set_integer_constant(i_con, (a_host_large_integer)i, targ_size_t_int_kind);
+  i_node = alloc_node_for_constant(alloc_shareable_constant(i_con));
+  release_local_constant(&i_con);
+  range_node = var_lvalue_expr(range);
+  if (is_reference_type(range->type)) {
+    range_node->is_lvalue = FALSE;
+    range_node = add_ref_indirection_to_node(range_node);
+  }  /* if */
+  range_node = conv_array_expr_to_pointer(range_node);
+  range_node->next = i_node;
+  elem_expr = make_operator_node((an_expr_operator_kind)eok_subscript,
+                                 array_element_type(range_type), range_node);
+  elem_expr->is_lvalue = TRUE;
+  if (strict_cpp17_eval_order) {
+    elem_expr->variant.operation.eval_left_to_right = TRUE;
+  }  /* if */
+  make_glvalue_expression_operand(elem_expr, result);
+  set_operand_position(result, pos, pos, pos);
+}  /* make_expansion_array_element_operand */
+
+
+static void make_expansion_field_operand(a_variable_ptr    range,
+                                         a_field_ptr       field,
+                                         a_source_position *pos,
+                                         an_operand        *result)
+/*
+Build in *result the expression "range.field", where range is the variable to
+which the expansion-initializer of a destructuring expansion statement over a
+class is bound.
+*/
+{
+  an_operand        selector;
+  a_symbol_ptr      field_sym = symbol_for(field);
+  a_symbol_locator  field_loc;
+
+  make_lvalue_variable_operand(range, pos, pos, &selector,
+                               (a_ref_entry_ptr)NULL);
+  make_locator_for_symbol(field_sym, &field_loc);
+  cast_pointer_for_field_selection(&selector, /*is_arrow_operator=*/FALSE,
+                                   field_sym, field_sym,
+                                   /*access_control_error_reported=*/FALSE,
+                                   /*do_protected_member_check=*/TRUE, pos);
+  do_field_selection_operation(&selector, selector.type,
+                               /*is_arrow_operator=*/FALSE,
+                               /*compiler_generated=*/TRUE,
+                               &field_loc, pos,
+                               end_position_or_null(pos),
+                               (a_ref_entry_ptr)NULL, result);
+}  /* make_expansion_field_operand */
+/* The maximum number of expansions of an iterating expansion statement when
+   the number of elements has to be determined by counting. */
+#define MAX_COUNTED_EXPANSIONS  65536
+
+static a_boolean interpret_expansion_operand(an_operand        *operand,
+                                             a_source_position *pos,
+                                             a_constant_ptr    result_con)
+/*
+Evaluate the given (non-error) operand as a constant expression and return
+its value in *result_con.  Return TRUE if the evaluation succeeded.  An error
+is issued otherwise.
+*/
+{
+  an_expr_node_ptr  expr;
+  a_diag_list       diag_list;
+  a_boolean         passed;
+
+  expr = make_node_from_operand(operand);
+  expr = wrap_up_full_expression(expr);
+  clear_diag_list(&diag_list);
+  passed = interpret_expr(expr, /*is_constant_evaluated=*/TRUE,
+                          /*force_prvalue=*/TRUE, result_con, &diag_list);
+  if (!passed && expr_error_should_be_issued()) {
+    a_diagnostic_ptr  dp;
+    dp = pos_start_error(ec_expansion_stmt_init_not_constant, pos);
+    add_more_info_list(dp, &diag_list);
+    end_diagnostic(dp);
+  }  /* if */
+  discard_more_info_list(&diag_list);
+  return passed;
+}  /* interpret_expansion_operand */
+
+
+static a_boolean fold_expansion_helper_variable(a_variable_ptr   vp,
+                                                a_diag_list_ptr  diag_list)
+/*
+Fold the initializer of one of the exposition-only variables of an iterating
+expansion statement into a constant, so that the number of expansions (and
+the element each expansion is for) can be determined now.  Those variables
+are "static constexpr" ([stmt.expand]), but they are synthesized rather than
+declared, so the folding that declaration processing would do for them has to
+be done here.  Return TRUE if the variable has a constant value.
+*/
+{
+  a_boolean  result = FALSE;
+
+  if (vp == NULL) {
+    /* There is no such variable (e.g., no result object needs to be
+       materialized); nothing to fold. */
+    result = TRUE;
+  } else if (vp->init_kind == (an_init_kind)initk_static) {
+    /* Already folded. */
+    result = TRUE;
+  } else if (vp->init_kind == (an_init_kind)initk_dynamic &&
+             vp->initializer.dynamic != NULL) {
+    a_constant_ptr  folded_con = local_constant();
+    if (interpret_dynamic_init(vp->initializer.dynamic,
+                               &vp->source_corresp.decl_position,
+                               vp->type, /*is_constant_evaluated=*/TRUE,
+                               folded_con, diag_list)) {
+      a_boolean               switched_region = FALSE;
+      a_memory_region_number  region_to_switch_back_to;
+      if (in_file_scope(vp)) {
+        /* The variable outlives the function being compiled, so its value
+           must be allocated in file-scope memory. */
+        switch_to_file_scope_region(&region_to_switch_back_to);
+        switched_region = TRUE;
+      }  /* if */
+      vp->init_kind = (an_init_kind)initk_static;
+      vp->initializer.constant = move_local_constant_to_il(&folded_con);
+      if (switched_region) {
+        switch_back_to_original_region(region_to_switch_back_to);
+      }  /* if */
+      result = TRUE;
+    } else {
+      release_local_constant(&folded_con);
+    }  /* if */
+  }  /* if */
+  return result;
+}  /* fold_expansion_helper_variable */
+
+
+static a_boolean compute_iterating_expansion_count(an_expansion_plan  *plan)
+/*
+Determine the number of expansions (plan->n) of an iterating expansion
+statement whose "begin" and "end" variables are already set in *plan.  The
+count is "end - begin" when that expression is available (and a constant
+expression); otherwise it is determined by counting the number of times
+"begin + k != end" holds.  Return TRUE if the count could be determined
+(an error is issued otherwise).
+*/
+{
+  an_operand           operand1, operand2, result;
+  an_expr_stack_entry  expr_stack_entry;
+  a_constant_ptr       con = local_constant();
+  a_boolean            passed = FALSE, processed = FALSE, none_viable = FALSE;
+  a_source_position    *pos = &plan->pos;
+
+  /* The exposition-only variables are "static constexpr"; fold their
+     initializers so that their values can be used below. */
+  { a_diag_list  diag_list;
+    clear_diag_list(&diag_list);
+    if (!fold_expansion_helper_variable(plan->range_object, &diag_list) ||
+        !fold_expansion_helper_variable(plan->range, &diag_list) ||
+        !fold_expansion_helper_variable(plan->begin, &diag_list) ||
+        !fold_expansion_helper_variable(plan->end, &diag_list)) {
+      if (expr_error_should_be_issued()) {
+        a_diagnostic_ptr  dp;
+        dp = pos_start_error(ec_expansion_stmt_init_not_constant, pos);
+        add_more_info_list(dp, &diag_list);
+        end_diagnostic(dp);
+      }  /* if */
+      discard_more_info_list(&diag_list);
+      plan->err = TRUE;
+      release_local_constant(&con);
+      return FALSE;
+    }  /* if */
+    discard_more_info_list(&diag_list);
+  }
+  push_expr_stack((an_expression_kind)ek_normal, &expr_stack_entry,
+                  /*force_object_lifetime=*/FALSE,
+                  /*suppress_object_lifetime=*/FALSE);
+  /* First try "end - begin". */
+  make_lvalue_variable_operand(plan->end, pos, pos, &operand1,
+                               (a_ref_entry *)NULL);
+  make_lvalue_variable_operand(plan->begin, pos, pos, &operand2,
+                               (a_ref_entry *)NULL);
+  if (is_overloadable_first_operand_type(operand1.type) ||
+      is_overloadable_first_operand_type(operand2.type)) {
+    f_check_for_operator_overloading((an_opname_kind)onk_minus,
+                                     /*unary_operator=*/FALSE,
+                                     /*must_be_member_function=*/FALSE,
+                                     /*try_conversions=*/TRUE,
+                                     /*has_predef_meaning=*/TRUE,
+                                     &operand1, &operand2, pos,
+                                     NO_TOKEN_SEQUENCE_NUMBER,
+                                     (a_nondependent_call_depth)0,
+                                     pos, &result, &none_viable,
+                                     (a_candidate_function_ptr)NULL,
+                                     &processed);
+  } else if (is_pointer_type(operand1.type) &&
+             is_pointer_type(operand2.type) &&
+             types_are_compatible(operand1.type, operand2.type)) {
+    conv_glvalue_to_prvalue(&operand1);
+    conv_glvalue_to_prvalue(&operand2);
+    do_binary_operation((an_expr_operator_kind)eok_pdiff, &operand1,
+                        &operand2, integer_type(targ_ptrdiff_t_int_kind),
+                        &result, pos, NO_TOKEN_SEQUENCE_NUMBER);
+    processed = TRUE;
+  }  /* if */
+  if (processed && !is_error_operand(&result) &&
+      is_integral_type(result.type) &&
+      interpret_expansion_operand(&result, pos, con) &&
+      !is_error_constant(con) && con->kind == (a_constant_repr_kind)ck_integer) {
+    a_boolean  ovflo = FALSE;
+    a_host_large_integer  value = value_of_integer_constant(con, &ovflo);
+    if (!ovflo && value >= 0) {
+      plan->n = (a_targ_size_t)value;
+      passed = TRUE;
+    }  /* if */
+  }  /* if */
+  pop_expr_stack();
+  if (!passed && !processed) {
+    /* No "end - begin" is available.  Count the elements instead. */
+    a_targ_size_t  k;
+    a_boolean      done = FALSE;
+    passed = TRUE;
+    for (k = 0; passed && !done; k++) {
+      an_operand  iter, ne;
+      a_boolean   ne_processed = FALSE;
+      if (k > MAX_COUNTED_EXPANSIONS) {
+        pos_diagnostic(es_error, ec_expansion_stmt_too_many_iterations, pos,
+                       (int)MAX_COUNTED_EXPANSIONS);
+        passed = FALSE;
+        break;
+      }  /* if */
+      push_expr_stack((an_expression_kind)ek_normal, &expr_stack_entry,
+                      /*force_object_lifetime=*/FALSE,
+                      /*suppress_object_lifetime=*/FALSE);
+      if (!make_expansion_iterator_operand(plan->begin, k, pos, &iter)) {
+        passed = FALSE;
+      } else {
+        make_lvalue_variable_operand(plan->end, pos, pos, &operand2,
+                                     (a_ref_entry *)NULL);
+        if (is_overloadable_first_operand_type(iter.type) ||
+            is_overloadable_first_operand_type(operand2.type)) {
+          check_for_operator_overloading((an_opname_kind)onk_ne,
+                                         /*is_unary_op=*/FALSE,
+                                         /*must_be_member_function=*/FALSE,
+                                         /*try_conversions=*/TRUE,
+                                         /*has_predef_meaning=*/FALSE,
+                                         &iter, &operand2, pos,
+                                         NO_TOKEN_SEQUENCE_NUMBER,
+                                         (a_nondependent_call_depth)1,
+                                         pos, &ne, &ne_processed);
+        }  /* if */
+        if (!ne_processed) {
+          conv_glvalue_to_prvalue(&iter);
+          conv_glvalue_to_prvalue(&operand2);
+          process_eq_opnds(&iter, &operand2, (a_token_kind)tok_ne,
+                           NO_TOKEN_SEQUENCE_NUMBER, pos, &ne);
+        }  /* if */
+        if (is_error_operand(&ne)) {
+          passed = FALSE;
+        } else {
+          process_boolean_controlling_expression(&ne);
+          if (!interpret_expansion_operand(&ne, pos, con)) {
+            passed = FALSE;
+          } else if (is_false_constant(con)) {
+            plan->n = k;
+            done = TRUE;
+          }  /* if */
+        }  /* if */
+      }  /* if */
+      pop_expr_stack();
+    }  /* for */
+  }  /* if */
+  if (!passed) {
+    plan->err = TRUE;
+    expect_error();
+  }  /* if */
+  release_local_constant(&con);
+  return passed;
+}  /* compute_iterating_expansion_count */
+
+static void make_expansion_range_variable(an_expansion_plan  *plan,
+                                          an_operand         *operand,
+                                          a_boolean          force_static)
+/*
+Create the variable to which the expansion-initializer of an iterating or
+destructuring expansion statement is bound (the exposition-only "range"
+variable of [stmt.expand]) and record it in plan->range.  operand is the
+expansion-initializer.  For an iterating expansion statement, whose
+exposition-only variables are "static constexpr", force_static is TRUE: the
+object the variable refers to is then made const, and the result object of a
+prvalue expansion-initializer is materialized in a static variable of its
+own, so that the reference refers to an object usable in a constant
+expression.
+*/
+{
+  a_type_ptr  expr_type = operand->type, ref_type;
+
+  if (force_static && !is_template_dependent_type(expr_type)) {
+    /* The exposition-only variables of an iterating expansion statement are
+       "constexpr" ([stmt.expand]), so the object the range refers to must be
+       const (it has to be readable in a constant expression). */
+    expr_type = make_qualified_type(expr_type,
+                                    (a_type_qualifier_set)
+                                      (get_type_qualifiers(expr_type) |
+                                       TQ_CONST));
+  }  /* if */
+  if (is_an_rvalue(operand)) {
+    ref_type = make_rvalue_reference_type(expr_type);
+  } else if (is_template_param_type(expr_type)) {
+    /* Template-dependent type.  Consider okay. */
+    ref_type = type_of_unknown_templ_param_nontype;
+  } else {
+    ref_type = make_reference_type(expr_type);
+  }  /* if */
+  if (force_static && is_an_rvalue(operand) &&
+      !is_template_param_type(expr_type)) {
+    /* The exposition-only "range" variable of an iterating expansion
+       statement has static storage duration, so the result object of a
+       prvalue expansion-initializer must have it too (otherwise the
+       reference would not be bound to an object usable in a constant
+       expression).  Materialize the result object explicitly here and bind
+       the reference to it. */
+    plan->range_object = alloc_temporary_variable(expr_type,
+                                                  /*force_static=*/TRUE);
+    plan->range_object->is_constexpr = TRUE;
+    declare_synthesized_variable(plan->range_object);
+    set_variable_initializer(plan->range_object, operand);
+    make_lvalue_variable_operand(plan->range_object, &plan->pos, &plan->pos,
+                                 operand, (a_ref_entry *)NULL);
+    expr_type = operand->type;
+    ref_type = make_reference_type(expr_type);
+  }  /* if */
+  plan->range = alloc_temporary_variable(ref_type, force_static);
+  if (force_static || plan->decl_is_constexpr) {
+    plan->range->is_constexpr = TRUE;
+  }  /* if */
+  declare_synthesized_variable(plan->range);
+  /* A variable with automatic storage duration needs an explicit
+     initialization statement: unlike the corresponding variable of a
+     range-based for statement, this one is not initialized by any enclosing
+     loop statement. */
+  set_variable_initializer_full(plan->range, operand,
+                                /*gen_init_statement=*/!force_static,
+                                /*defer_init_statement=*/FALSE);
+}  /* make_expansion_range_variable */
+
+
+static a_boolean classify_destructuring_expansion(an_expansion_plan  *plan)
+/*
+Determine, for a destructuring expansion statement, which structured binding
+protocol applies to the type of its expansion-initializer and how many
+expansions there are.  Return TRUE if the type can be destructured (an error
+is issued otherwise).
+*/
+{
+  a_boolean  err = FALSE;
+
+  complete_type_is_needed(plan->range_type);
+  if (is_array_type(plan->range_type)) {
+    plan->array_case = TRUE;
+    plan->n = skip_typerefs(plan->range_type)
+                                   ->variant.array.variant.number_of_elements;
+  } else if (is_tuple_like_type(plan->range_type, &plan->n, &err)) {
+    plan->tuple_case = TRUE;
+  } else if (!err &&
+             check_simple_struct_for_binding(plan->range_type, &plan->n,
+                                             &plan->first_field,
+                                             /*for_decltype=*/TRUE,
+                                             &plan->pos)) {
+    plan->struct_case = TRUE;
+  } else {
+    err = TRUE;
+  }  /* if */
+  if (err) {
+    pos_ty_error(ec_expansion_stmt_not_expandable, &plan->pos,
+                 plan->range_type);
+    plan->err = TRUE;
+  }  /* if */
+  return !err;
+}  /* classify_destructuring_expansion */
+
+
+static a_boolean expansion_initializer_is_iterable(a_type_ptr  type)
+/*
+Return TRUE if an expansion-initializer of the given (non-array) type is
+expansion-iterable ([stmt.expand]/3), i.e., if "begin" and "end" can be found
+either as members of the class or by argument-dependent lookup.
+*/
+{
+  a_boolean  result = FALSE;
+
+  if (is_class_struct_union_type(type)) {
+    if (has_range_based_member_requirements(type)) {
+      result = TRUE;
+    }  /* if */
+  }  /* if */
+  if (!result) {
+    /* Look for "begin" and "end" through argument-dependent lookup (with
+       namespace std as an associated namespace, as for a range-based for
+       statement).  Only the lookup is performed here; whether the functions
+       found can actually be called is determined later. */
+    a_symbol_locator            locator;
+    a_type_list_entry_ptr       type_list = NULL, class_list = NULL;
+    a_namespace_list_entry_ptr  ns_list = NULL;
+    a_symbol_list_entry_ptr     symbol_list;
+    a_const_char                *names[2];
+    int                         k;
+    a_boolean                   found_both = TRUE;
+    names[0] = "begin";
+    names[1] = "end";
+    for (k = 0; k < 2 && found_both; k++) {
+      clear_locator(&locator, &error_position);
+      (void)find_symbol(names[k], strlen(names[k]), &locator);
+      type_list = NULL;
+      class_list = NULL;
+      ns_list = NULL;
+      add_to_arg_dependent_lookup_list(type, &type_list);
+      symbol_list = argument_dependent_lookup((a_symbol_ptr)NULL, &locator,
+                                              &type_list, &ns_list,
+                                              &class_list,
+                                              /*include_std_namespace=*/TRUE);
+      if (symbol_list == NULL) {
+        found_both = FALSE;
+      } else {
+        free_list_of_symbol_list_entries(symbol_list);
+      }  /* if */
+    }  /* for */
+    result = found_both;
+  }  /* if */
+  return result;
+}  /* expansion_initializer_is_iterable */
+
+
+void scan_expansion_initializer(a_boolean          decl_is_constexpr,
+                                a_boolean          defer_expansion,
+                                an_expansion_plan  *plan)
+/*
+Scan the expansion-initializer of an expansion statement ([stmt.expand]),
+classify it, and determine the number of expansions.  The result is returned
+in *plan, which the caller must eventually pass to free_expansion_plan.
+decl_is_constexpr is TRUE if "constexpr" appears in the decl-specifiers of the
+for-range-declaration.  If defer_expansion is TRUE, the expansion-initializer
+is scanned but not analyzed (the expansion statement cannot be expanded in
+the current context); plan->is_dependent is then returned TRUE.  This routine
+must be called with the outer scope of the expansion statement (the one in
+which the exposition-only "range", "begin", and "end" variables are created)
+on the scope stack.
+
+The three forms of expansion statement are distinguished as follows:
+
+  - If the expansion-initializer is an expansion-init-list ("{ ... }"), the
+    expansion statement is enumerating and each element of the list is the
+    initializer of one expansion.
+  - Otherwise, if the expansion-initializer is expansion-iterable (i.e., it
+    does not have array type and "begin" and "end" can be found for it), the
+    expansion statement is iterating:
+      static constexpr auto &&range = expansion-initializer;
+      static constexpr auto begin = begin-expr;
+      static constexpr auto end = end-expr;
+    and the initializer of the i-th expansion is "*(begin + i)".
+  - Otherwise, the expansion statement is destructuring:
+      constexpr     auto &&range = expansion-initializer;
+               opt
+    and the initializer of the i-th expansion is the i-th element of the
+    structured binding protocol applied to range.
+*/
+{
+  an_operand           operand;
+  an_expr_stack_entry  expr_stack_entry, *saved_expr_stack;
+  a_type_ptr           expr_type;
+
+  db_enter(3, "scan_expansion_initializer");
+  memzero((char *)plan, sizeof(*plan));
+  plan->kind = esk_none;
+  plan->decl_is_constexpr = decl_is_constexpr;
+  plan->pos = pos_curr_token;
+  plan->tsn = curr_token_sequence_number;
+  save_expr_stack(&saved_expr_stack);
+  /* Temporaries created in the expansion-initializer of an iterating or
+     destructuring expansion statement persist for the lifetime of the
+     expansion statement ([class.temporary]), as for the range-initializer of
+     a range-based for statement: the temporary object lifetime is inhibited
+     here, so that set_temp_dynamic_init_lifetime gives those temporaries the
+     lifetime of the block scope of the expansion statement.  This applies
+     to the elements of an expansion-init-list as well; each of them is
+     bound to a reference variable declared in that scope (see below). */
+  push_expr_stack((an_expression_kind)ek_normal, &expr_stack_entry,
+                  /*force_object_lifetime=*/FALSE,
+                  /*suppress_object_lifetime=*/TRUE);
+  expr_stack->destructions_preceding_expr = curr_object_lifetime->destructions;
+  expr_stack_entry.range_based_for_range = TRUE;
+  if (curr_token == tok_lbrace) {
+    /* An expansion-init-list.  Each element provides the initializer of one
+       expansion, so (unlike a braced-init-list) no common type is deduced
+       and no std::initializer_list object is created. */
+    an_init_component_ptr  icp, elem;
+    icp = parse_braced_init_list(/*bundle=*/FALSE);
+    plan->kind = esk_enumerating;
+    plan->list = icp;
+    if (defer_expansion) {
+      plan->is_dependent = TRUE;
+    } else if (icp != NULL && is_braced_init_component(icp)) {
+      an_il_entity_list_entry_ptr  *tail = &plan->elements;
+      if (icp->contains_designator) {
+        pos_error(ec_designator_in_expansion_init_list, &plan->pos);
+        plan->err = TRUE;
+      }  /* if */
+      for (elem = icp->variant.braced.list; elem != NULL;
+           elem = next_elem(elem)) {
+        /* Bind each element to a reference variable of its own, declared in
+           the scope of the expansion statement: the element is scanned
+           here, in that scope, and the temporaries it creates have the
+           lifetime of that scope ([class.temporary]), but the element is
+           the initializer of one expansion, i.e., it is used in a nested
+           scope.  The variable is what the expansion refers to. */
+        an_il_entity_list_entry_ptr  entry;
+        a_variable_ptr               elem_var = NULL;
+        if (decl_is_constexpr) {
+          /* The element is used directly as the initializer of the
+             (constexpr) variable of its expansion. */
+        } else if (is_expression_component(elem)) {
+          an_operand  elem_operand;
+          extract_operand_from_expression_component(elem, &elem_operand,
+                                                    /*free_icp=*/FALSE);
+          if (!is_error_operand(&elem_operand)) {
+            a_type_ptr  elem_type = elem_operand.type;
+            a_type_ptr  elem_ref_type;
+            if (is_an_rvalue(&elem_operand)) {
+              elem_ref_type = make_rvalue_reference_type(elem_type);
+            } else if (is_template_param_type(elem_type)) {
+              elem_ref_type = type_of_unknown_templ_param_nontype;
+            } else {
+              elem_ref_type = make_reference_type(elem_type);
+            }  /* if */
+            elem_var = alloc_temporary_variable(elem_ref_type,
+                                                /*force_static=*/FALSE);
+            declare_synthesized_variable(elem_var);
+            /* As for the "range" variable of a range-based for statement:
+               the temporaries of the element get the lifetime of the block
+               scope of the expansion statement.  The variable needs an
+               explicit initialization statement, which is generated once
+               the expression context of the list has been left (below). */
+            set_variable_initializer_full(elem_var, &elem_operand,
+                                          /*gen_init_statement=*/FALSE,
+                                          /*defer_init_statement=*/TRUE);
+          }  /* if */
+        }  /* if */
+        if (elem_var == NULL && !decl_is_constexpr) plan->err = TRUE;
+        entry = alloc_il_entity_list_entry();
+        entry->entity.kind = (an_il_entry_kind)iek_variable;
+        entry->entity.ptr = (char *)elem_var;
+        entry->next = NULL;
+        *tail = entry;
+        tail = &entry->next;
+        plan->n++;
+      }  /* for */
+    } else {
+      plan->err = TRUE;
+      expect_error();
+    }  /* if */
+    goto done;
+  }  /* if */
+  /* Scan the expression.  Arrays must not decay to pointers and lvalues must
+     not be converted to rvalues (as for a range-based for statement). */
+  scan_expr(&operand, PREC_LOWEST, EOPT_NO_OPTIONS);
+  do_operand_transformations(&operand,
+                             TOPT_SUPPRESS_ARRAY_TO_POINTER_CONVERSION |
+                             TOPT_SUPPRESS_LVALUE_TO_RVALUE_CONVERSION);
+  plan->pos = operand.position;
+  expr_type = operand.type;
+  if (is_error_operand(&operand) || is_error_type(expr_type)) {
+    plan->err = TRUE;
+    goto done;
+  }  /* if */
+  if (defer_expansion || is_template_dependent_type(expr_type)) {
+    /* The form of the expansion statement cannot be determined yet. */
+    plan->is_dependent = TRUE;
+    goto done;
+  }  /* if */
+  if (!is_array_type(expr_type) &&
+      expansion_initializer_is_iterable(expr_type)) {
+    /* An iterating expansion statement. */
+    a_range_based_for_loop  rbfl;
+    a_boolean               passed;
+    Value_saver<a_boolean>  saved_force_static(&force_static_enhanced_for_temps,
+                                               TRUE);
+    plan->kind = esk_iterating;
+    memzero((char *)&rbfl, sizeof(rbfl));
+    make_expansion_range_variable(plan, &operand, /*force_static=*/TRUE);
+    rbfl.range = plan->range;
+    if (is_class_struct_union_type(expr_type) &&
+        has_range_based_member_requirements(expr_type)) {
+      passed = check_range_based_for_member_case(&rbfl, &plan->pos,
+                                                 plan->tsn);
+    } else {
+      passed = check_range_based_for_default_case(&rbfl, &plan->pos,
+                                                  plan->tsn);
+    }  /* if */
+    plan->begin = rbfl.begin;
+    plan->end = rbfl.end;
+    declare_synthesized_variable(plan->begin);
+    declare_synthesized_variable(plan->end);
+    if (!passed || plan->begin == NULL || plan->end == NULL) {
+      plan->err = TRUE;
+    } else {
+      plan->begin->is_constexpr = TRUE;
+      plan->end->is_constexpr = TRUE;
+      (void)compute_iterating_expansion_count(plan);
+    }  /* if */
+  } else {
+    /* A destructuring expansion statement. */
+    plan->kind = esk_destructuring;
+    make_expansion_range_variable(plan, &operand,
+                                  /*force_static=*/FALSE);
+    plan->range_type = plan->range->type;
+    if (is_any_reference_type(plan->range_type)) {
+      plan->range_type = type_pointed_to(plan->range_type);
+    }  /* if */
+    (void)classify_destructuring_expansion(plan);
+  }  /* if */
+done:
+  pop_expr_stack();
+  restore_expr_stack(saved_expr_stack);
+  if (plan->kind == esk_enumerating) {
+    /* Generate the initialization statements for the variables bound to
+       the elements of the expansion-init-list. */
+    an_il_entity_list_entry_ptr  entry;
+    for (entry = plan->elements; entry != NULL; entry = entry->next) {
+      a_variable_ptr  elem_var = (a_variable_ptr)entry->entity.ptr;
+      if (elem_var != NULL &&
+          elem_var->init_kind == (an_init_kind)initk_dynamic &&
+          elem_var->initializer.dynamic != NULL) {
+        gen_variable_dynamic_init(elem_var, elem_var->initializer.dynamic);
+      }  /* if */
+    }  /* for */
+  }  /* if */
+  if (plan->err) plan->n = 0;
+  db_exit();
+}  /* scan_expansion_initializer */
+
+
+void init_dependent_expansion_variable(a_variable_ptr  var)
+/*
+Do the processing required for the variable declared by the for-range-
+declaration of an expansion statement whose expansion-initializer is template
+dependent.  No initializer can be recorded in that case, but a placeholder
+type that could not be deduced must be replaced by a dependent type (as is
+done for a range-based for statement with a dependent range).
+*/
+{
+  if (var != NULL) {
+    if (var_declared_with_placeholder_type(var) &&
+        is_auto_type(find_bottom_of_type(var->type))) {
+      var->type = type_of_unknown_templ_param_nontype;
+    }  /* if */
+    mark_variable_value_set(symbol_for(var));
+    mark_referenced(symbol_for(var), &var->source_corresp.decl_position);
+  }  /* if */
+}  /* init_dependent_expansion_variable */
+
+
+void free_expansion_plan(an_expansion_plan  *plan)
+/*
+Release any resources held by *plan.
+*/
+{
+  if (plan->list != NULL) {
+    free_init_component_list(plan->list);
+    plan->list = NULL;
+  }  /* if */
+}  /* free_expansion_plan */
+
+
+static a_boolean make_expansion_element_operand(an_expansion_plan  *plan,
+                                                a_targ_size_t      i,
+                                                an_init_component  **p_icp,
+                                                an_operand         *result)
+/*
+Build in *result the initializer of the i-th expansion of the expansion
+statement described by *plan.  If an initializer component is created in the
+process, it is returned in *p_icp and must be freed by the caller.  Return
+TRUE if the operand could be built.
+*/
+{
+  a_boolean  passed = TRUE;
+
+  *p_icp = NULL;
+  switch (plan->kind) {
+    case esk_enumerating:
+      if (plan->decl_is_constexpr) {
+        /* The variable of the expansion is constexpr, so its initializer
+           must be a constant expression: use the element itself (a use of
+           the variable bound to it would not be a constant expression). */
+        an_init_component_ptr  elem = plan->list->variant.braced.list;
+        a_targ_size_t          k;
+        for (k = 0; k != i && elem != NULL; k++) elem = next_elem(elem);
+        if (elem == NULL || !is_expression_component(elem)) {
+          passed = FALSE;
+        } else {
+          extract_operand_from_expression_component(elem, result,
+                                                    /*free_icp=*/FALSE);
+        }  /* if */
+      } else {
+        /* The i-th element of the expansion-init-list is the initializer of
+           the i-th expansion; it is represented by the variable bound to
+           it (see scan_expansion_initializer). */
+        an_il_entity_list_entry_ptr  entry = plan->elements;
+        a_targ_size_t                k;
+        for (k = 0; k != i && entry != NULL; k++) entry = entry->next;
+        if (entry == NULL || entry->entity.ptr == NULL) {
+          passed = FALSE;
+        } else {
+          make_enhanced_for_expression_operand(
+                                   (a_variable_ptr)entry->entity.ptr, result);
+        }  /* if */
+      }  /* if */
+      break;
+    case esk_iterating:
+      {
+        an_operand  iter;
+        passed = make_expansion_iterator_operand(plan->begin, i, &plan->pos,
+                                                 &iter) &&
+                 make_expansion_deref_operand_from_operand(&iter, &plan->pos,
+                                                           result);
+      }
+      break;
+    case esk_destructuring:
+      if (plan->array_case) {
+        make_expansion_array_element_operand(plan->range, i, &plan->pos,
+                                             result);
+      } else if (plan->tuple_case) {
+        a_type_ptr  btype;
+        btype = tuple_like_binding_type(plan->range, plan->range_type, i,
+                                        &plan->pos, p_icp);
+        if (is_error_type(btype) || *p_icp == NULL ||
+            !is_expression_component(*p_icp)) {
+          passed = FALSE;
+        } else {
+          extract_operand_from_expression_component(*p_icp, result,
+                                                    /*free_icp=*/FALSE);
+        }  /* if */
+      } else {
+        a_field_ptr    fp = next_bindable_field(plan->first_field);
+        a_targ_size_t  k;
+        for (k = 0; k != i && fp != NULL; k++) {
+          fp = next_bindable_field(fp->next);
+        }  /* for */
+        if (fp == NULL) {
+          passed = FALSE;
+        } else {
+          make_expansion_field_operand(plan->range, fp, &plan->pos, result);
+        }  /* if */
+      }  /* if */
+      break;
+    default:
+      passed = FALSE;
+      break;
+  }  /* switch */
+  if (passed && is_error_operand(result)) passed = FALSE;
+  if (!passed) {
+    expect_error();
+    make_error_operand(result);
+  }  /* if */
+  return passed;
+}  /* make_expansion_element_operand */
+
+
+void init_expansion_variable(an_expansion_plan   *plan,
+                             a_targ_size_t       i,
+                             a_variable_ptr      var,
+                             a_decl_parse_state  *dps)
+/*
+Record the initializer of the variable declared by the for-range-declaration
+of an expansion statement for the i-th expansion.  *plan describes the
+expansion statement (see scan_expansion_initializer), var is the variable
+declared for this expansion, and dps is the declaration parse state for it
+(it is used when the declaration is a structured binding declaration whose
+container has array type).  This routine must be called with the scope of the
+i-th expansion on the scope stack.
+*/
+{
+  an_operand              operand;
+  an_init_component       *icp = NULL;
+  an_expr_stack_entry     expr_stack_entry;
+  a_boolean               expr_stack_popped = FALSE;
+
+  db_enter(3, "init_expansion_variable");
+  push_expr_stack((an_expression_kind)ek_normal, &expr_stack_entry,
+                  /*force_object_lifetime=*/FALSE,
+                  /*suppress_object_lifetime=*/FALSE);
+  if (var == NULL) {
+    /* An error case; nothing to initialize. */
+  } else if (!make_expansion_element_operand(plan, i, &icp, &operand)) {
+    var->type = error_type();
+  } else {
+    deduce_auto_type_in_enhanced_for_if_needed(var, &operand);
+    if (var->is_struct_binding_container &&
+        !is_any_reference_type(var->type) &&
+        is_array_type(operand.type)) {
+      /* As in a range-based for statement, a structured binding declaration
+         whose container has array type must be handled separately (the array
+         is copied element by element). */
+      an_init_component_ptr  array_icp;
+      pop_expr_stack();
+      expr_stack_popped = TRUE;
+      array_icp = alloc_arg_list_elem_for_operand(&operand);
+      record_init_for_array_struct_binding(dps, array_icp);
+      free_init_component_list(array_icp);
+      gen_variable_dynamic_init(var, dps->init_state.init_dip);
+    } else {
+      set_variable_initializer_full(var, &operand,
+                                    /*gen_init_statement=*/TRUE,
+                                    /*defer_init_statement=*/FALSE);
+    }  /* if */
+    if (relaxed_constexpr_allowed() && innermost_function_scope != NULL &&
+        innermost_function_scope->variant.routine.ptr->is_constexpr) {
+      check_var_in_constexpr_function(var,
+                                      &var->source_corresp.decl_position);
+    }  /* if */
+  }  /* if */
+  if (var != NULL) {
+    /* The variable is initialized from the element this expansion is for,
+       which a back end must render as an explicit initializer. */
+    var->has_explicit_initializer = TRUE;
+    /* As for a range-based for statement, the variable declared by the
+       for-range-declaration is considered to have a value and to be
+       referenced (the latter so that no "declared but never referenced"
+       diagnostic is issued when an expansion does not use it). */
+    mark_variable_value_set(symbol_for(var));
+    mark_referenced(symbol_for(var), &var->source_corresp.decl_position);
+  }  /* if */
+  if (icp != NULL) free_init_component_list(icp);
+  if (!expr_stack_popped) pop_expr_stack();
+  db_exit();
+}  /* init_expansion_variable */
+
+#endif /* !STANDALONE_UTILITY_PROGRAM */
 
 
 void scan_range_based_for_expression(a_statement_ptr   statement,

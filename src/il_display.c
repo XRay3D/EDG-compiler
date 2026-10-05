@@ -3373,6 +3373,9 @@ Display the indicated variable.
   if (ptr->is_compound_literal) {
     disp_boolean("is_compound_literal", TRUE);
   }  /* if */
+  if (ptr->is_synthesized_declared_variable) {
+    disp_boolean("is_synthesized_declared_variable", TRUE);
+  }  /* if */
   if (ptr->has_explicit_initializer) {
     disp_boolean("has_explicit_initializer", TRUE);
   }  /* if */
@@ -5407,6 +5410,12 @@ Display the indicated block.
                (a_boolean)ptr->end_of_block_reachable);
   if (ptr->is_statement_expression) {
     disp_boolean("is_statement_expression", TRUE);
+  }  /* if */
+  if (ptr->is_expansion_statement) {
+    disp_boolean("is_expansion_statement", TRUE);
+  }  /* if */
+  if (ptr->is_expansion) {
+    disp_boolean("is_expansion", TRUE);
   }  /* if */
   if (ptr->implicit_scope_not_allowed) {
     disp_boolean("implicit_scope_not_allowed", TRUE);

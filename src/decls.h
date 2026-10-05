@@ -1606,6 +1606,21 @@ extern a_type_ptr get_tuple_element_type(a_targ_size_t      elem_idx,
 
 extern a_type_ptr decltype_for_struct_binding(a_variable_ptr  vp);
 
+extern a_type_ptr tuple_like_binding_type(a_variable_ptr     container,
+                                          a_type_ptr         tp,
+                                          a_targ_size_t      elem_idx,
+                                          a_source_position  *diag_pos,
+                                          an_init_component  **p_icp);
+
+extern a_field_ptr next_bindable_field(a_field_ptr field);
+
+extern a_boolean check_simple_struct_for_binding(
+                                               a_type_ptr         tp,
+                                               a_targ_size_t      *n_elements,
+                                               a_field_ptr        *p_fields,
+                                               a_boolean          for_decltype,
+                                               a_source_position  *pos);
+
 extern void define_struct_bindings(a_decl_parse_state  *dps);
 
 extern void start_secondary_declarator(a_decl_parse_state  *ps);

@@ -3679,5 +3679,14 @@ ec_exp_interpolator;;"expected an interpolator (\"\\[\", \"\\[:\", \"\\{\", \"\\
 ec_interpolated_id_is_not_identifier;;"%sq does not spell an identifier"
 ec_interpolated_operand_is_not_token_sequence;;"the operand of a \"\\{...}\" interpolator is not a token sequence"
 ec_tag_redefined_differently;;"this declaration of %n does not declare the same type as the declaration %p"
+ec_expansion_statements_is_cpp26;;"expansion statements are a C++26 feature"
+ec_expansion_stmt_body_must_be_compound;;"the body of an expansion statement must be a compound statement"
+ec_label_in_expansion_stmt;;"a label cannot appear in the body of an expansion statement"
+ec_case_label_in_expansion_stmt;;"a case label cannot appear in an expansion statement enclosed by the switch"
+ec_expansion_stmt_init_not_constant;;"the expansion-initializer of an iterating expansion statement is not a constant expression"
+ec_expansion_stmt_size_not_constant;;"the number of iterations of the expansion statement cannot be determined"
+ec_expansion_stmt_not_expandable;;"an expression of type %t cannot be used as an expansion-initializer"
+ec_designator_in_expansion_init_list;;"a designator cannot appear in an expansion-init-list"
+ec_expansion_stmt_too_many_iterations;;"the expansion statement has too many iterations (the limit is %d)"
  ###############################################################################
 

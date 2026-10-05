@@ -8470,7 +8470,24 @@ statements of its block one per visit.
     local_storage = item->variant.block.has_local_storage;
   }  /* if */
   if (result) {
+    a_block_ptr  block = block_stmt->variant.block.extra_info;
     stmt = item->variant.block.next_stmt;
+    if (control_transfer_active(ips) && ips->curr_call_frame != NULL &&
+        (block->is_expansion || block->is_expansion_statement)) {
+      /* A "break" in the body of an expansion statement terminates the whole
+         expansion statement and a "continue" passes control to the end of the
+         current expansion ([stmt.break], [stmt.cont]).  Unlike the
+         corresponding branches out of a loop statement, these are not
+         resolved by any loop in the IL, so they are resolved here. */
+      a_call_frame_ptr  frame = ips->curr_call_frame;
+      if (block->is_expansion && frame->continue_active) {
+        frame->continue_active = FALSE;
+        stmt = NULL;
+      } else if (block->is_expansion_statement && frame->loop_break_active) {
+        frame->loop_break_active = FALSE;
+        stmt = NULL;
+      }  /* if */
+    }  /* if */
     if (stmt != NULL && !control_transfer_active(ips)) {
       item->variant.block.next_stmt = stmt->next;
       push_stmt_work(ips, stmt);

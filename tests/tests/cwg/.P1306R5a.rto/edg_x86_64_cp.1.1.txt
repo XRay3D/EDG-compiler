@@ -1,0 +1,16 @@
+fe_only -DTEST_NUMBER=1 --c++26 -tused -A Test_name.c
+"Test_name.c", line 76: error: static assertion failed
+  static_assert((break_and_continue(0) == 3 * (1 + 10)));
+  ^
+"Test_name.c", line 76: note: the final comparison was 11 == 33
+  static_assert((break_and_continue(0) == 3 * (1 + 10)));
+                                       ^
+
+"Test_name.c", line 77: error: static assertion failed
+  static_assert((break_and_continue(1) == 3 * (((1 + 10) + 20) + 30)));
+  ^
+"Test_name.c", line 77: note: the final comparison was 33 == 183
+  static_assert((break_and_continue(1) == 3 * (((1 + 10) + 20) + 30)));
+                                       ^
+
+2 errors detected in the compilation of "tmp.HWWDYKkzi3/Test_name.c".

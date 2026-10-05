@@ -48,6 +48,73 @@ example, with --clang_version 230100:
   #pragma clang diagnostic push
 
 was previously recorded as "clangdiagnostic push".  That is now fixed.
+10/5/26  [GH #N]
+C++26: Expansion statements (IL CHANGE)
+
+The front end now supports expansion statements, which have been adopted for
+the upcoming C++26 Standard via WG21 paper P1306R5.  An expansion statement
+
+    template for (init-statement     for-range-declaration
+                                 opt
+                  : expansion-initializer) compound-statement
+
+instantiates its compound-statement once per element of the
+expansion-initializer, each instantiation having its own copy of the
+for-range-declaration (and therefore its own deduced type and, when the
+declaration is "constexpr", its own constant value).  For example:
+
+    struct S { int i; short s; };
+    constexpr int f(S s) {
+      int result = 0;
+      template for (auto x : s) {
+        result += sizeof(x);
+      }
+      return result;
+    }
+    static_assert(f(S{1, 2}) == sizeof(int) + sizeof(short));
+
+There are three forms ([stmt.expand]).  When the expansion-initializer is an
+expansion-init-list ("{ ... }"), the statement is enumerating and each
+element of the list is the initializer of one expansion.  Otherwise, when
+the expansion-initializer is expansion-iterable (it does not have array type
+and "begin" and "end" can be found for it), the statement is iterating: the
+expansion-initializer, "begin", and "end" are bound to exposition-only
+"static constexpr" variables and the i-th element is "*(begin + i)".
+Otherwise the statement is destructuring and the elements are those produced
+by the structured binding protocol.
+
+A "break" in the body terminates the whole expansion statement and a
+"continue" passes control to the end of the current expansion.  An
+identifier label may not appear in the body, nor may a case label of a
+switch statement that encloses the expansion statement.
+
+Expansion statements are represented in the IL by a block that contains the
+init-statement, the exposition-only variables, and one block per expansion.
+Two new flags on a_block, is_expansion_statement and is_expansion, identify
+those blocks; the constexpr interpreter uses them to resolve the branches
+generated for "break" and "continue", which no loop statement in the IL
+would otherwise resolve.  A new flag on a_variable,
+is_synthesized_declared_variable, identifies the exposition-only variables,
+which have no name and no declaration in the source but are nevertheless
+represented by a declaration statement so that back ends can emit them.
+
+The feature is available in C++26 mode, where __cpp_expansion_statements is
+defined as 202506L, and is accepted with a warning in other C++ modes.  It
+can also be enabled or disabled explicitly with --set_flag
+expansion_statements and --clear_flag expansion_statements.
+
+The following refinements of P1306R5 adopted by the Core Working Group are
+not implemented yet: CWG 3044 (an iterating expansion statement over a local
+"constexpr" object), CWG 3119 (a structured binding pack in the
+for-range-declaration outside a template), CWG 3123 (falling back to a
+destructuring expansion statement when "begin" and "end" are found but
+cannot be called), CWG 3140 (an iterating expansion statement over an object
+whose "begin" and "end" are not const member functions), and CWG 3149 (the
+value category of the elements of a destructuring expansion statement whose
+expansion-initializer is not an lvalue).  In addition, the body of an
+expansion statement with no expansions is not checked (it is not a template
+definition in the front end's representation, so it cannot be analyzed
+without being expanded).
 
 
 10/1/26  [GH #197]

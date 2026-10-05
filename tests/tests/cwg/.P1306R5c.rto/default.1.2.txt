@@ -1,0 +1,9 @@
+./a.out
+Red = 1
+Green = 2
+Blue = 4
+sum = 7
+x = 10
+y = 20
+name = pt
+fields = 3

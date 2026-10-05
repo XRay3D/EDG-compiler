@@ -19108,7 +19108,7 @@ done:
 }  /* get_tuple_element_type */
 
 
-static a_type_ptr tuple_like_binding_type(a_variable_ptr     container,
+a_type_ptr tuple_like_binding_type(a_variable_ptr     container,
                                           a_type_ptr         tp,
                                           a_targ_size_t      elem_idx,
                                           a_source_position  *diag_pos,
@@ -19152,7 +19152,7 @@ done:
 }  /* tuple_like_binding_type */
 
 
-static a_field_ptr next_bindable_field(a_field_ptr field)
+a_field_ptr next_bindable_field(a_field_ptr field)
 /*
 Given a pointer to a field (or NULL), return a pointer to the first field at
 or after the given field that a structured binding can bind to.  If there is
@@ -19188,7 +19188,7 @@ fields are unnamed bit fields.  Otherwise, return its list of fields.
 }  /* get_direct_fields_if_nonempty */
 
 
-static a_boolean check_simple_struct_for_binding(
+a_boolean check_simple_struct_for_binding(
                                                a_type_ptr         tp,
                                                a_targ_size_t      *n_elements,
                                                a_field_ptr        *p_fields,
