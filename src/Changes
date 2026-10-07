@@ -1,6 +1,24 @@
 Version 7.1
 
 10/8/26
+std::meta::parent_of for namespaces
+
+std::meta::parent_of and std::meta::has_parent did not accept a reflection
+of a namespace or of a namespace alias: parent_of was not a constant
+expression for one, and has_parent returned false.  As specified in P2996R13
+([meta.reflection.scope]), parent_of now returns the enclosing namespace for
+any namespace or namespace alias other than the global namespace.  For
+example:
+
+  #include <experimental/meta>
+  namespace outer { namespace inner {} }
+  static_assert(std::meta::parent_of(^^outer::inner) == ^^outer);
+                                        // Previously an error.
+  static_assert(std::meta::parent_of(^^outer) == ^^::);
+                                        // Previously an error.
+
+
+10/8/26
 std::meta::source_location_of for reflections without a declaration
 
 As specified in P2996R13 ([meta.reflection.names]),
