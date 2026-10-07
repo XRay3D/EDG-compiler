@@ -34125,7 +34125,28 @@ parameter lists that were scanned.
         if (decl_state->class_declared_in == NULL) {
           /* Prototype instantiations for templates declared within classes
              are handled elsewhere. */
+#if REFLECTION_ENABLING_POSSIBLE
+          a_routine_ptr  proto_rp = tssp->variant.function.routine;
+          a_boolean      record_resolutions =
+                       reflection_enabled && injection_enabled &&
+                       proto_rp != NULL &&
+                       (definition_tokens_enabled ||
+                        operator_resolutions_wanted() ||
+                        has_retain_tokens_attribute(
+                                       proto_rp->source_corresp.attributes));
+          if (record_resolutions) {
+            /* Record the outcomes of overload resolution for the operators
+               of the template (for std::meta::resolved_operator_of). */
+            begin_recording_operator_resolutions();
+          }  /* if */
+#endif /* REFLECTION_ENABLING_POSSIBLE */
           function_prototype_instantiation(sym);
+#if REFLECTION_ENABLING_POSSIBLE
+          if (record_resolutions) {
+            end_recording_operator_resolutions();
+            note_template_operator_resolutions(proto_rp);
+          }  /* if */
+#endif /* REFLECTION_ENABLING_POSSIBLE */
         }  /* if */
       }  /* if */
 #if GENERATE_SOURCE_SEQUENCE_LISTS

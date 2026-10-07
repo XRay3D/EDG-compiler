@@ -1,0 +1,143 @@
+eccp -DTEST_NUMBER=2 --c++26 --set_flag=reflection --set_flag=injection --set_flag=definition_tokens --parse_templates --no_defer_parse_function_templates Test_name.c
+"reflections/.includes/exp_meta/experimental/meta.stdh", line 743: error: no instance of function template "std::meta::substitute" matches the argument list
+            argument types are: (std::meta::info, std::vector<std::meta::info, std::allocator<std::meta::info>>)
+          return substitute ( ^^ expander, args );
+                 ^
+"reflections/.includes/exp_meta/experimental/meta.stdh", line 127: note: substituting "<std::vector<std::meta::info, std::allocator<std::meta::info>> &>" for function template "std::meta::substitute" failed constraints
+        consteval info substitute ( info __templ, __R && __args );
+                       ^
+"reflections/.includes/exp_meta/experimental/meta.stdh", line 126: note: concept "std::meta::reflection_range" not satisfied for "<std::vector<std::meta::info, std::allocator<std::meta::info>> &>"
+  template < reflection_range __R = initializer_list < info > >
+             ^
+"reflections/.includes/exp_meta/experimental/meta.stdh", line 121: note: atomic constraint evaluates to false
+  template< class __R> concept reflection_range = (ranges::input_range< __R>  && is_same_type((decltype(^^0){}), (decltype(^^0){}))) && is_same_type(remove_cvref((decltype(^^0){})), (decltype(^^0){})); 
+                                                                                             ^
+
+"reflections/.includes/exp_meta/experimental/meta.stdh", line 768: error: no instance of function template "std::meta::substitute" matches the argument list
+            argument types are: (std::meta::info, std::vector<std::meta::info, std::allocator<std::meta::info>>)
+        return substitute ( ^^ __impl :: replicator, args );
+               ^
+"reflections/.includes/exp_meta/experimental/meta.stdh", line 127: note: substituting "<std::vector<std::meta::info, std::allocator<std::meta::info>> &>" for function template "std::meta::substitute" failed constraints
+        consteval info substitute ( info __templ, __R && __args );
+                       ^
+"reflections/.includes/exp_meta/experimental/meta.stdh", line 126: note: concept "std::meta::reflection_range" not satisfied for "<std::vector<std::meta::info, std::allocator<std::meta::info>> &>"
+  template < reflection_range __R = initializer_list < info > >
+             ^
+"reflections/.includes/exp_meta/experimental/meta.stdh", line 121: note: atomic constraint evaluates to false
+  template< class __R> concept reflection_range = (ranges::input_range< __R>  && is_same_type((decltype(^^0){}), (decltype(^^0){}))) && is_same_type(remove_cvref((decltype(^^0){})), (decltype(^^0){})); 
+                                                                                             ^
+
+"Test_name.c", line 107: error: expression must have a constant value
+  static_assert((parent_of(resolved_operator_of(nth_token((decltype(^^0){}), "+", 1))) == (decltype(^^0){})));
+                ^
+"Test_name.c", line 102: note: the tokens of the definition of this entity are not available (they are recorded only with the "definition_tokens" flag or the [[edg::retain_tokens]] attribute)
+  for (std::meta::info t : tokens_of(definition_tokens_of(fn))) { 
+                                                         ^
+"Test_name.c", line 102: note: called from:
+  for (std::meta::info t : tokens_of(definition_tokens_of(fn))) { 
+                                                         ^
+
+"Test_name.c", line 108: error: expression must have a constant value
+  static_assert((parent_of(resolved_operator_of(nth_token((decltype(^^0){}), "+", 2))) == (decltype(^^0){})));
+                ^
+"Test_name.c", line 102: note: the tokens of the definition of this entity are not available (they are recorded only with the "definition_tokens" flag or the [[edg::retain_tokens]] attribute)
+  for (std::meta::info t : tokens_of(definition_tokens_of(fn))) { 
+                                                         ^
+"Test_name.c", line 102: note: called from:
+  for (std::meta::info t : tokens_of(definition_tokens_of(fn))) { 
+                                                         ^
+
+"Test_name.c", line 110: error: expression must have a constant value
+  static_assert(is_resolved_through_adl(nth_token((decltype(^^0){}), "+", 2)));
+                ^
+"Test_name.c", line 102: note: the tokens of the definition of this entity are not available (they are recorded only with the "definition_tokens" flag or the [[edg::retain_tokens]] attribute)
+  for (std::meta::info t : tokens_of(definition_tokens_of(fn))) { 
+                                                         ^
+"Test_name.c", line 102: note: called from:
+  for (std::meta::info t : tokens_of(definition_tokens_of(fn))) { 
+                                                         ^
+
+"Test_name.c", line 111: error: expression must have a constant value
+  static_assert((!is_resolved_through_adl(nth_token((decltype(^^0){}), "+", 1))));
+                ^
+"Test_name.c", line 102: note: the tokens of the definition of this entity are not available (they are recorded only with the "definition_tokens" flag or the [[edg::retain_tokens]] attribute)
+  for (std::meta::info t : tokens_of(definition_tokens_of(fn))) { 
+                                                         ^
+"Test_name.c", line 102: note: called from:
+  for (std::meta::info t : tokens_of(definition_tokens_of(fn))) { 
+                                                         ^
+
+"Test_name.c", line 112: error: expression must have a constant value
+  static_assert((operator_of(resolved_operator_of(nth_token((decltype(^^0){}), "!=", 0))) == op_equals_equals));
+                ^
+"Test_name.c", line 102: note: the tokens of the definition of this entity are not available (they are recorded only with the "definition_tokens" flag or the [[edg::retain_tokens]] attribute)
+  for (std::meta::info t : tokens_of(definition_tokens_of(fn))) { 
+                                                         ^
+"Test_name.c", line 102: note: called from:
+  for (std::meta::info t : tokens_of(definition_tokens_of(fn))) { 
+                                                         ^
+
+"Test_name.c", line 114: error: expression must have a constant value
+  static_assert(has_reversed_operands(nth_token((decltype(^^0){}), "<", 0)));
+                ^
+"Test_name.c", line 102: note: the tokens of the definition of this entity are not available (they are recorded only with the "definition_tokens" flag or the [[edg::retain_tokens]] attribute)
+  for (std::meta::info t : tokens_of(definition_tokens_of(fn))) { 
+                                                         ^
+"Test_name.c", line 102: note: called from:
+  for (std::meta::info t : tokens_of(definition_tokens_of(fn))) { 
+                                                         ^
+
+"Test_name.c", line 120: error: expression must have a constant value
+  static_assert(is_built_in((decltype(^^0){}), "+", 0));
+                ^
+"Test_name.c", line 102: note: the tokens of the definition of this entity are not available (they are recorded only with the "definition_tokens" flag or the [[edg::retain_tokens]] attribute)
+  for (std::meta::info t : tokens_of(definition_tokens_of(fn))) { 
+                                                         ^
+"Test_name.c", line 102: note: called from:
+  for (std::meta::info t : tokens_of(definition_tokens_of(fn))) { 
+                                                         ^
+"Test_name.c", line 117: note: called from:
+  std::meta::info t = nth_token(fn, sp, n); 
+                               ^
+
+"Test_name.c", line 121: error: expression must have a constant value
+  static_assert((!is_built_in((decltype(^^0){}), "+", 1)));
+                ^
+"Test_name.c", line 102: note: the tokens of the definition of this entity are not available (they are recorded only with the "definition_tokens" flag or the [[edg::retain_tokens]] attribute)
+  for (std::meta::info t : tokens_of(definition_tokens_of(fn))) { 
+                                                         ^
+"Test_name.c", line 102: note: called from:
+  for (std::meta::info t : tokens_of(definition_tokens_of(fn))) { 
+                                                         ^
+"Test_name.c", line 117: note: called from:
+  std::meta::info t = nth_token(fn, sp, n); 
+                               ^
+
+"Test_name.c", line 130: error: expression must have a constant value
+  static_assert((parent_of(resolved_operator_of(nth_token((decltype(^^0){}), "+", 0))) == (decltype(^^0){})));
+                ^
+"Test_name.c", line 102: note: the tokens of the definition of this entity are not available (they are recorded only with the "definition_tokens" flag or the [[edg::retain_tokens]] attribute)
+  for (std::meta::info t : tokens_of(definition_tokens_of(fn))) { 
+                                                         ^
+"Test_name.c", line 102: note: called from:
+  for (std::meta::info t : tokens_of(definition_tokens_of(fn))) { 
+                                                         ^
+
+"Test_name.c", line 135: error: call to consteval function "std::define_static_string(__R &&) [with __R=std::string]" did not produce a valid constant expression
+  std::fputs(define_static_string(describe(definition_tokens_of((decltype(^^0){})))), stdout); 
+                                 ^
+"Test_name.c", line 135: note: the tokens of the definition of this entity are not available (they are recorded only with the "definition_tokens" flag or the [[edg::retain_tokens]] attribute)
+  std::fputs(define_static_string(describe(definition_tokens_of((decltype(^^0){})))), stdout); 
+                                                               ^
+
+"Test_name.c", line 138: error: call to consteval function "std::define_static_string(__R &&) [with __R=std::meta::__str]" did not produce a valid constant expression
+  std::printf("g: s1 + s2 -> %s\n", define_static_string(display_string_of(resolved_operator_of(nth_token((decltype(^^0){}), "+", 0))))); return 0; 
+                                                        ^
+"Test_name.c", line 102: note: the tokens of the definition of this entity are not available (they are recorded only with the "definition_tokens" flag or the [[edg::retain_tokens]] attribute)
+  for (std::meta::info t : tokens_of(definition_tokens_of(fn))) { 
+                                                         ^
+"Test_name.c", line 102: note: called from:
+  for (std::meta::info t : tokens_of(definition_tokens_of(fn))) { 
+                                                         ^
+
+13 errors detected in the compilation of "Test_name.c".

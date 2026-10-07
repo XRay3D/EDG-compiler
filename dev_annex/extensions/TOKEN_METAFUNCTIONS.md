@@ -41,7 +41,7 @@ namespace std::meta {
     identifier, keyword, punctuator,
     integer_literal, floating_literal, character_literal,
     string_literal, boolean_literal, user_defined_literal,
-    interpolated
+    interpolated, operator_function_id
   };
 
   consteval std::vector<info>    tokens_of(info tokens);
@@ -50,6 +50,11 @@ namespace std::meta {
   consteval info                 token_value_of(info token);
   consteval std::source_location token_location_of(info token);
   consteval info                 definition_tokens_of(info r);
+
+  consteval info                 resolved_operator_of(info token);
+  consteval bool                 is_resolved_through_adl(info token);
+  consteval bool                 is_rewritten_operator(info token);
+  consteval bool                 has_reversed_operands(info token);
 }
 ```
 
@@ -178,6 +183,69 @@ consteval bool is_operator_token(info t) {
 
 `is_operator_function` stays `false` for a token sequence, since a token is
 not a function.
+
+### Which operator function a token calls
+
+```cpp
+info resolved_operator_of(info token);
+bool is_resolved_through_adl(info token);
+bool is_rewritten_operator(info token);
+bool has_reversed_operands(info token);
+```
+
+For an operator token of a definition, `resolved_operator_of` returns the
+operator function that overload resolution selected for it.  If no operator
+function is called there, it returns the token itself.  That is the case for
+a built-in operator, and for a token that is not an operator of an
+expression, such as the `=` of an initializer or the `*` of `int* p`.
+
+The result is an ordinary reflection of a function, so the standard queries
+apply to it: `operator_of`, `parent_of`, `display_string_of`, and so on.  The
+three predicates say how the function was found:
+
+| Predicate | True when |
+| --- | --- |
+| `is_resolved_through_adl` | The function was found only by argument-dependent lookup |
+| `is_rewritten_operator` | The operation was rewritten in terms of another comparison (C++20), e.g. `a != b` as `!(a == b)` or `a < b` with `operator<=>` |
+| `has_reversed_operands` | The operands were reversed for such a rewrite, e.g. `1 < n` using `operator<=>(N, int)` |
+
+The predicates are always constant and return `false` when no function was
+selected.
+
+```cpp
+struct S { S operator+(S) const; };
+namespace ns { struct N {}; bool operator==(N, N); }
+
+[[edg::retain_tokens]] bool f(int a, S s, ns::N n1, ns::N n2) {
+  int x = a + a;        // built-in: the token itself
+  S y = s + s;          // S::operator+
+  return n1 != n2;      // ns::operator==, through ADL, rewritten
+}
+```
+
+The front end records the outcome of overload resolution while it parses a
+definition whose tokens are recorded, keyed by the operator token.  Each copy
+made by `definition_tokens_of` and `tokens_of` keeps a link to its original
+token.  The cost is one hash table entry per overloaded operator in recorded
+definitions, and nothing when tokens are not recorded.
+
+Restrictions:
+
+- **The token must come from `definition_tokens_of`,** possibly through
+  `tokens_of`.  A token from a literal `^^{ ... }`, or one reassembled with
+  interpolation, has no resolution, and the call is not a constant.
+- **Function templates must be parsed at their definition.**  An operator that
+  does not depend on a template parameter is resolved when the template is
+  defined, if its definition is parsed there
+  (`--parse_templates --no_defer_parse_function_templates`).  For a
+  template-dependent operator, the outcome is known only in an instantiation,
+  so the call is not a constant.  Instantiations and members of class
+  templates are not covered.
+- **Some operators are resolved elsewhere.**  Calls of `operator()` on objects
+  and `new` and `delete` expressions return the token for now.
+- **`operator=` may be built in.**  When the selected copy assignment
+  operator is trivial, the front end generates a built-in assignment, but the
+  function was selected and is returned.
 
 ### Standard queries on token sequences
 
@@ -461,6 +529,8 @@ libstdc++ and requires `--set_flag=definition_tokens`, which records
 | `token_value_of` on an identifier, keyword, or punctuator | `invalid reflection for intrinsic metafunction` |
 | `definition_tokens_of` on an entity whose tokens were not recorded, or that has no definition | `the tokens of the definition of this entity are not available ...` |
 | `operator_of` on a token sequence that is not exactly one *operator-function-id* | `invalid reflection for intrinsic metafunction` |
+| `resolved_operator_of` on a token that does not come from a recorded definition | `the resolution of this operator is not available ...` |
+| `resolved_operator_of` on a template-dependent operator | `this operator is template-dependent; its resolution is known only in an instantiation` |
 
 See `tests/tests/reflections/tokens_e.sft.cpp`.
 
@@ -491,3 +561,4 @@ See `tests/tests/reflections/tokens_e.sft.cpp`.
 | `reflections/tokens_c.sft.cpp` | Logged copies of a free function and of a virtual member function |
 | `reflections/tokens_d.sft.cpp` | `checked_vector` built from `std::vector` member tokens |
 | `reflections/tokens_e.sft.cpp` | Diagnostics |
+| `reflections/tokens_f.sft.cpp` | `resolved_operator_of` and its predicates: built-in, member, ADL, rewritten and reversed comparisons, `[]`, `->`, and a function template |

@@ -4170,15 +4170,19 @@ nested class.
 #endif /* TEMPLATE_INSTANTIATIONS_IN_SOURCE_SEQUENCE_LISTS */
 #endif /* GENERATE_SOURCE_SEQUENCE_LISTS */
 #if REFLECTION_ENABLING_POSSIBLE
-          if (!is_template_based &&
+          a_boolean  record_member_tokens =
+              !is_template_based &&
               (definition_tokens_wanted(rp->source_corresp.attributes) ||
                recorded_definition_tokens_for(make_tagged_ptr(class_type)) !=
-                                                                     NULL)) {
+                                                                     NULL);
+          if (record_member_tokens) {
             /* Record the tokens of the definition for
                std::meta::definition_tokens_of (as for those of the class, if
-               they were recorded). */
+               they were recorded), and the outcomes of overload resolution
+               for its operators (for std::meta::resolved_operator_of). */
             save_definition_tokens(make_tagged_ptr(rp),
                                    rfp->function_body_token_cache.ptr());
+            begin_recording_operator_resolutions();
           }  /* if */
 #endif /* REFLECTION_ENABLING_POSSIBLE */
           rescan_shared_reusable_cache(rfp->function_body_token_cache);
@@ -4191,6 +4195,9 @@ nested class.
                              (SFB_NO_CLASS_REACTIVATION |
                               SFB_NEW_STRUCT_STMT_STACK_REQUIRED |
                               SFB_PRAGMA_PACK_IS_LOCAL));
+#if REFLECTION_ENABLING_POSSIBLE
+          if (record_member_tokens) end_recording_operator_resolutions();
+#endif /* REFLECTION_ENABLING_POSSIBLE */
           /* scan_function_body does not scan past the right brace. */
           if (curr_token == tok_rbrace) {
             (void)get_token();

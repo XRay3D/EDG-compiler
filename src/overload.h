@@ -526,11 +526,11 @@ typedef struct a_candidate_function {
   a_bit_field	in_best_match_set_for_curr_argument:1;
 			/* TRUE if the function is in the set of best-matching
 			   functions for the current argument. */
-#if BACK_END_IS_CP_GEN_BE
+#if BACK_END_IS_CP_GEN_BE || REFLECTION_ENABLING_POSSIBLE
   a_bit_field	found_through_adl:1;
 			/* TRUE if the function was found through argument-
 			   dependent lookup */
-#endif /* BACK_END_IS_CP_GEN_BE */
+#endif /* BACK_END_IS_CP_GEN_BE || REFLECTION_ENABLING_POSSIBLE */
 } a_candidate_function;
 
 #define clear_candidate_function(p_cand)                           \

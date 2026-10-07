@@ -3817,7 +3817,8 @@ STATIC_THREAD an_entity_to_definition_tokens_map
 
 
 void copy_definition_tokens(const a_token_cache  *src,
-                            a_token_cache        *dest)
+                            a_token_cache        *dest,
+                            a_boolean            resolutions_known)
 /*
 Append to dest a copy of the tokens of src, a cache holding the tokens of a
 definition, in a form suitable for rescanning in any context: each token gets
@@ -3825,7 +3826,11 @@ a fresh token sequence number, the terminating tok_end_of_source (if any) and
 pragma entries are dropped, and the placeholders that template processing
 leaves in a template's token cache (the body of a member function or member
 class template extracted into its own cache, or a removed default argument or
-initializer) are replaced by the tokens they stand for.
+initializer) are replaced by the tokens they stand for.  If
+resolutions_known is TRUE, the outcomes of overload resolution for the
+operators of the definition were recorded (see record_operator_resolution),
+and each copy is linked to its original token so that they can be found
+(see note_token_copy).
 */
 {
   for (auto it = src->begin(); it != src->end(); ++it) {
@@ -3835,7 +3840,8 @@ initializer) are replaced by the tokens they stand for.
     if (tok->is(tok_removed_expr)) {
       /* A removed expression (e.g., a default argument): copy its tokens. */
       if (tok->get_removed_expression() != NULL) {
-        copy_definition_tokens(tok->get_removed_expression(), dest);
+        copy_definition_tokens(tok->get_removed_expression(), dest,
+                               resolutions_known);
       }  /* if */
     } else if (tok->is_extracted_template_body()) {
       /* The placeholder of a member body extracted into the member's own
@@ -3848,15 +3854,21 @@ initializer) are replaced by the tokens they stand for.
                                   template_supplement_for_symbol(etdp->symbol);
       if (tssp != NULL && tssp->cache != NULL &&
           tssp->cache->tokens.ptr() != NULL) {
-        copy_definition_tokens(tssp->cache->tokens.ptr(), dest);
+        copy_definition_tokens(tssp->cache->tokens.ptr(), dest,
+                               resolutions_known);
       }  /* if */
       if (!tok->is(tok_removed_template_body) && !etdp->semicolon_inserted) {
         cache_token(dest, tok_semicolon, tok->get_source_position());
       }  /* if */
     } else {
-      a_cached_token  copy(*tok);
-      copy.set_seq_number(assign_new_token_sequence_number());
+      a_cached_token           copy(*tok);
+      a_token_sequence_number  tsn = assign_new_token_sequence_number();
+      copy.set_seq_number(tsn);
       dest->append_token(move_from(&copy));
+      if (resolutions_known) {
+        note_token_copy(tsn, tok->get_starting_seq_number(),
+                        /*source_is_original=*/TRUE);
+      }  /* if */
     }  /* if */
   }  /* for */
 }  /* copy_definition_tokens */
@@ -4001,6 +4013,26 @@ order.
 }  /* add_tokens_to_definition_recording */
 
 
+a_boolean has_retain_tokens_attribute(an_attribute_ptr  attributes)
+/*
+Return TRUE if the attribute list attributes (possibly NULL) includes the
+[[edg::retain_tokens]] attribute.
+*/
+{
+  a_boolean         result = FALSE;
+  an_attribute_ptr  ap;
+
+  for (ap = attributes; ap != NULL && !result; ap = ap->next) {
+    if (ap->name != NULL && strcmp(ap->name, "retain_tokens") == 0 &&
+        ap->namespace_name != NULL &&
+        strcmp(ap->namespace_name, "edg") == 0) {
+      result = TRUE;
+    }  /* if */
+  }  /* for */
+  return result;
+}  /* has_retain_tokens_attribute */
+
+
 a_boolean definition_tokens_wanted(an_attribute_ptr  attributes)
 /*
 Return TRUE if the tokens of a definition about to be scanned should be
@@ -4021,14 +4053,7 @@ templates are already cached.
   } else if (definition_tokens_enabled || definition_recording_active()) {
     result = TRUE;
   } else {
-    an_attribute_ptr  ap;
-    for (ap = attributes; ap != NULL && !result; ap = ap->next) {
-      if (ap->name != NULL && strcmp(ap->name, "retain_tokens") == 0 &&
-          ap->namespace_name != NULL &&
-          strcmp(ap->namespace_name, "edg") == 0) {
-        result = TRUE;
-      }  /* if */
-    }  /* for */
+    result = has_retain_tokens_attribute(attributes);
   }  /* if */
   return result;
 }  /* definition_tokens_wanted */
@@ -4108,6 +4133,211 @@ if it is an original token that was fetched while recording was suspended.
     record_curr_token_for_definition();
   }  /* if */
 }  /* resume_definition_recording */
+
+
+/*
+The outcomes of overload resolution for operators, recorded for
+std::meta::resolved_operator_of.  They are recorded only for the operators of
+definitions whose tokens are recorded (see operator_resolutions_wanted), so
+that there is no cost otherwise.
+*/
+STATIC_THREAD Ptr_map<a_token_sequence_number, an_operator_resolution*>
+		*operator_resolutions;
+			/* Map from the token sequence number of an operator
+			   token to the outcome of overload resolution for it.
+			   Allocated on first use. */
+
+STATIC_THREAD Ptr_map<a_token_sequence_number, a_token_sequence_number>
+		*token_copy_origins;
+			/* Map from the token sequence number of a copy of a
+			   token of a definition whose operator resolutions are
+			   recorded to the token sequence number of the original
+			   token.  Allocated on first use. */
+
+STATIC_THREAD Ptr_map<a_routine_ptr, a_boolean>
+		*templates_with_operator_resolutions;
+			/* The prototype routines of the function templates
+			   whose operator resolutions were recorded (see
+			   note_template_operator_resolutions).  Allocated on
+			   first use. */
+
+STATIC_THREAD sizeof_t
+		operator_resolution_recording_depth;
+			/* Nonzero while a function body whose tokens are
+			   recorded is scanned outside of the recording of its
+			   definition (a member function defined in a class,
+			   whose body is scanned after the class), or while the
+			   prototype instantiation of a function template whose
+			   operator resolutions are requested is done. */
+
+
+a_boolean operator_resolutions_wanted(void)
+/*
+Return TRUE if the outcomes of overload resolution for the operators of the
+code being scanned outside of templates should be recorded (see
+record_operator_resolution): that is the case when the tokens of the
+enclosing definition are being recorded.  (Template definitions are handled
+by the caller.)
+*/
+{
+  return definition_recording_active() ||
+         operator_resolution_recording_depth != 0;
+}  /* operator_resolutions_wanted */
+
+
+void begin_recording_operator_resolutions(void)
+/*
+Record the outcomes of overload resolution for the operators of a function
+body that is about to be scanned outside of the recording of the tokens of its
+definition (see operator_resolutions_wanted).  Calls may be nested; each is
+paired with a call of end_recording_operator_resolutions.
+*/
+{
+  operator_resolution_recording_depth++;
+}  /* begin_recording_operator_resolutions */
+
+
+void end_recording_operator_resolutions(void)
+/*
+Undo a call of begin_recording_operator_resolutions.
+*/
+{
+  check_assertion(operator_resolution_recording_depth != 0);
+  operator_resolution_recording_depth--;
+}  /* end_recording_operator_resolutions */
+
+
+void record_operator_resolution(a_token_sequence_number  tsn,
+                                a_routine_ptr            routine,
+                                a_boolean                is_dependent,
+                                a_boolean                found_through_adl,
+                                a_boolean                is_rewritten,
+                                a_boolean                has_reversed_operands)
+/*
+Record the outcome of overload resolution for the operator whose token has
+token sequence number tsn: routine is the operator function selected (NULL if
+is_dependent is TRUE, i.e., if the operator is template-dependent in a
+template definition); found_through_adl is TRUE if the function was found only
+by argument-dependent lookup; is_rewritten is TRUE if the operation was
+rewritten in terms of another comparison operator (C++20); and
+has_reversed_operands is TRUE if the operands were reversed for such a
+rewrite.  A later outcome for the same token replaces an earlier one.
+*/
+{
+  an_operator_resolution  *orp;
+
+  if (tsn != NO_TOKEN_SEQUENCE_NUMBER) {
+    if (operator_resolutions == NULL) {
+      operator_resolutions =
+              new_fe<Ptr_map<a_token_sequence_number,
+                             an_operator_resolution*>>(/*mask_width=*/8u);
+    }  /* if */
+    orp = operator_resolutions->get(tsn);
+    if (orp == NULL) {
+      orp = new_fe<an_operator_resolution>();
+      operator_resolutions->map(tsn, orp);
+    }  /* if */
+    orp->routine = routine;
+    orp->is_dependent = is_dependent;
+    orp->found_through_adl = found_through_adl;
+    orp->is_rewritten = is_rewritten;
+    orp->has_reversed_operands = has_reversed_operands;
+  }  /* if */
+}  /* record_operator_resolution */
+
+
+const an_operator_resolution *operator_resolution_for(
+                                           a_token_sequence_number  tsn)
+/*
+Return the recorded outcome of overload resolution for the operator whose
+token has token sequence number tsn (the number of an original token, see
+original_token_sequence_number), or NULL if none was recorded (e.g., for a
+built-in operator).
+*/
+{
+  const an_operator_resolution  *result = NULL;
+
+  if (operator_resolutions != NULL && tsn != NO_TOKEN_SEQUENCE_NUMBER) {
+    result = operator_resolutions->get(tsn);
+  }  /* if */
+  return result;
+}  /* operator_resolution_for */
+
+
+void note_template_operator_resolutions(a_routine_ptr  proto_routine)
+/*
+The outcomes of overload resolution for the operators of the function template
+whose prototype routine is proto_routine were recorded (during its prototype
+instantiation at its definition).
+*/
+{
+  if (templates_with_operator_resolutions == NULL) {
+    templates_with_operator_resolutions =
+              new_fe<Ptr_map<a_routine_ptr, a_boolean>>(/*mask_width=*/6u);
+  }  /* if */
+  (void)templates_with_operator_resolutions->map_or_replace(proto_routine,
+                                                            TRUE);
+}  /* note_template_operator_resolutions */
+
+
+a_boolean template_operator_resolutions_recorded(a_routine_ptr  proto_routine)
+/*
+Return TRUE if note_template_operator_resolutions was called for the function
+template whose prototype routine is proto_routine.
+*/
+{
+  return templates_with_operator_resolutions != NULL &&
+         proto_routine != NULL &&
+         templates_with_operator_resolutions->get(proto_routine);
+}  /* template_operator_resolutions_recorded */
+
+
+void note_token_copy(a_token_sequence_number  copy_tsn,
+                     a_token_sequence_number  source_tsn,
+                     a_boolean                source_is_original)
+/*
+A token with token sequence number copy_tsn was made as a copy of the token
+with token sequence number source_tsn.  If source_is_original is TRUE, the
+source is a token of a definition whose operator resolutions are recorded;
+otherwise, the copy is linked to an original token only if the source is
+itself such a copy.
+*/
+{
+  a_token_sequence_number  origin = NO_TOKEN_SEQUENCE_NUMBER;
+
+  if (source_is_original) {
+    origin = source_tsn;
+  } else {
+    origin = original_token_sequence_number(source_tsn);
+  }  /* if */
+  if (origin != NO_TOKEN_SEQUENCE_NUMBER &&
+      copy_tsn != NO_TOKEN_SEQUENCE_NUMBER) {
+    if (token_copy_origins == NULL) {
+      token_copy_origins =
+              new_fe<Ptr_map<a_token_sequence_number,
+                             a_token_sequence_number>>(/*mask_width=*/8u);
+    }  /* if */
+    (void)token_copy_origins->map_or_replace(copy_tsn, origin);
+  }  /* if */
+}  /* note_token_copy */
+
+
+a_token_sequence_number original_token_sequence_number(
+                                           a_token_sequence_number  tsn)
+/*
+If the token with token sequence number tsn is a copy of a token of a
+definition whose operator resolutions are recorded (see note_token_copy),
+return the token sequence number of that original token; otherwise, return
+NO_TOKEN_SEQUENCE_NUMBER.
+*/
+{
+  a_token_sequence_number  result = NO_TOKEN_SEQUENCE_NUMBER;
+
+  if (token_copy_origins != NULL && tsn != NO_TOKEN_SEQUENCE_NUMBER) {
+    result = token_copy_origins->get(tsn);
+  }  /* if */
+  return result;
+}  /* original_token_sequence_number */
 
 #endif /* REFLECTION_ENABLING_POSSIBLE */
 
@@ -31167,6 +31397,10 @@ are handled in lexical_init.)
   register_trans_unit_variable(definition_recordings);
   register_trans_unit_variable(definition_recording_depth);
   register_trans_unit_variable(definition_recording_suspended);
+  register_trans_unit_variable(operator_resolutions);
+  register_trans_unit_variable(token_copy_origins);
+  register_trans_unit_variable(templates_with_operator_resolutions);
+  register_trans_unit_variable(operator_resolution_recording_depth);
 #endif /* REFLECTION_ENABLING_POSSIBLE */
   register_trans_unit_variable(curr_stop_token_stack_entry);
   register_trans_unit_variable(curr_lexical_state_stack_entry);

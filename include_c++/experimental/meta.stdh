@@ -449,6 +449,20 @@ namespace std {
 
     consteval info definition_tokens_of(info  r);
 
+    /* EDG extensions for the outcome of overload resolution for an operator
+       token of a definition obtained with definition_tokens_of (see the
+       "definition_tokens" flag and the [[edg::retain_tokens]] attribute):
+       resolved_operator_of returns a reflection of the operator function
+       selected, or the token itself if no operator function is called there
+       (e.g., for a built-in operator). */
+    consteval info resolved_operator_of(info  token);
+
+    consteval bool is_resolved_through_adl(info  token);
+
+    consteval bool is_rewritten_operator(info  token);
+
+    consteval bool has_reversed_operands(info  token);
+
 #ifdef __EDG_INJECTION_ENABLED__
     /* Accumulates a token sequence in which the pieces added with += are
        separated by the given separator, a comma by default.  The default is

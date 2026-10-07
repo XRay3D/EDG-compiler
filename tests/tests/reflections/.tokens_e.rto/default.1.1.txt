@@ -1,79 +1,160 @@
-fe_only -DTEST_NUMBER=1 --c++26 --set_flag=reflection --set_flag=injection Test_name.c
-"Test_name.c", line 21: error: expression must have a constant value
+fe_only -DTEST_NUMBER=1 --c++26 --set_flag=reflection --set_flag=injection --parse_templates --no_defer_parse_function_templates Test_name.c
+"Test_name.c", line 23: error: expression must have a constant value
   constexpr std::size_t n1 = tokens_of(^^int).size();         // error
                              ^
-"Test_name.c", line 21: note: invalid reflection for intrinsic metafunction
+"Test_name.c", line 23: note: invalid reflection for intrinsic metafunction
   constexpr std::size_t n1 = tokens_of(^^int).size();         // error
                                       ^
 
-"Test_name.c", line 22: error: expression must have a constant value
+"Test_name.c", line 24: error: expression must have a constant value
   constexpr token_kind k1 = token_kind_of(^^{});               // error
                             ^
-"Test_name.c", line 22: note: invalid reflection for intrinsic metafunction
+"Test_name.c", line 24: note: invalid reflection for intrinsic metafunction
   constexpr token_kind k1 = token_kind_of(^^{});               // error
                                          ^
 
-"Test_name.c", line 23: error: expression must have a constant value
+"Test_name.c", line 25: error: expression must have a constant value
   constexpr info v1 = token_value_of(^^{ x });                 // error
                       ^
-"Test_name.c", line 23: note: invalid reflection for intrinsic metafunction
+"Test_name.c", line 25: note: invalid reflection for intrinsic metafunction
   constexpr info v1 = token_value_of(^^{ x });                 // error
                                     ^
 
-"Test_name.c", line 24: error: expression must have a constant value
-  constexpr auto s1 = token_spelling_of(^^not_recorded);       // error
-                      ^
-"Test_name.c", line 24: note: invalid reflection for intrinsic metafunction
-  constexpr auto s1 = token_spelling_of(^^not_recorded);       // error
-                                       ^
-
-"Test_name.c", line 25: error: expression must have a constant value
-  constexpr auto l1 = token_location_of(^^{});                 // error
-                      ^
-"Test_name.c", line 25: note: invalid reflection for intrinsic metafunction
-  constexpr auto l1 = token_location_of(^^{});                 // error
-                                       ^
-
 "Test_name.c", line 26: error: expression must have a constant value
-  constexpr info d1 = definition_tokens_of(^^not_recorded);    // error
+  constexpr auto s1 = token_spelling_of(^^not_recorded);       // error
                       ^
-"Test_name.c", line 26: note: the tokens of the definition of this entity are not available (they are recorded only with the "definition_tokens" flag or the [[edg::retain_tokens]] attribute)
-  constexpr info d1 = definition_tokens_of(^^not_recorded);    // error
-                                          ^
+"Test_name.c", line 26: note: invalid reflection for intrinsic metafunction
+  constexpr auto s1 = token_spelling_of(^^not_recorded);       // error
+                                       ^
 
 "Test_name.c", line 27: error: expression must have a constant value
-  constexpr info d2 = definition_tokens_of(^^plain);           // error
+  constexpr auto l1 = token_location_of(^^{});                 // error
                       ^
-"Test_name.c", line 27: note: the tokens of the definition of this entity are not available (they are recorded only with the "definition_tokens" flag or the [[edg::retain_tokens]] attribute)
-  constexpr info d2 = definition_tokens_of(^^plain);           // error
-                                          ^
+"Test_name.c", line 27: note: invalid reflection for intrinsic metafunction
+  constexpr auto l1 = token_location_of(^^{});                 // error
+                                       ^
 
 "Test_name.c", line 28: error: expression must have a constant value
-  constexpr info d3 = definition_tokens_of(^^int);             // error
+  constexpr info d1 = definition_tokens_of(^^not_recorded);    // error
                       ^
 "Test_name.c", line 28: note: the tokens of the definition of this entity are not available (they are recorded only with the "definition_tokens" flag or the [[edg::retain_tokens]] attribute)
-  constexpr info d3 = definition_tokens_of(^^int);             // error
+  constexpr info d1 = definition_tokens_of(^^not_recorded);    // error
+                                          ^
+
+"Test_name.c", line 29: error: expression must have a constant value
+  constexpr info d2 = definition_tokens_of(^^plain);           // error
+                      ^
+"Test_name.c", line 29: note: the tokens of the definition of this entity are not available (they are recorded only with the "definition_tokens" flag or the [[edg::retain_tokens]] attribute)
+  constexpr info d2 = definition_tokens_of(^^plain);           // error
                                           ^
 
 "Test_name.c", line 30: error: expression must have a constant value
-  constexpr operators o1 = operator_of(^^{ + });               // error
-                           ^
-"Test_name.c", line 30: note: invalid reflection for intrinsic metafunction
-  constexpr operators o1 = operator_of(^^{ + });               // error
-                                      ^
-
-"Test_name.c", line 31: error: expression must have a constant value
-  constexpr operators o2 = operator_of(^^{ operator + x });    // error
-                           ^
-"Test_name.c", line 31: note: invalid reflection for intrinsic metafunction
-  constexpr operators o2 = operator_of(^^{ operator + x });    // error
-                                      ^
+  constexpr info d3 = definition_tokens_of(^^int);             // error
+                      ^
+"Test_name.c", line 30: note: the tokens of the definition of this entity are not available (they are recorded only with the "definition_tokens" flag or the [[edg::retain_tokens]] attribute)
+  constexpr info d3 = definition_tokens_of(^^int);             // error
+                                          ^
 
 "Test_name.c", line 32: error: expression must have a constant value
-  constexpr operators o3 = operator_of(^^{ operator int });    // error
+  constexpr operators o1 = operator_of(^^{ + });               // error
                            ^
 "Test_name.c", line 32: note: invalid reflection for intrinsic metafunction
+  constexpr operators o1 = operator_of(^^{ + });               // error
+                                      ^
+
+"Test_name.c", line 33: error: expression must have a constant value
+  constexpr operators o2 = operator_of(^^{ operator + x });    // error
+                           ^
+"Test_name.c", line 33: note: invalid reflection for intrinsic metafunction
+  constexpr operators o2 = operator_of(^^{ operator + x });    // error
+                                      ^
+
+"Test_name.c", line 34: error: expression must have a constant value
+  constexpr operators o3 = operator_of(^^{ operator int });    // error
+                           ^
+"Test_name.c", line 34: note: invalid reflection for intrinsic metafunction
   constexpr operators o3 = operator_of(^^{ operator int });    // error
                                       ^
 
-11 errors detected in the compilation of "Test_name.c".
+"Test_name.c", line 47: error: expression must have a constant value
+  constexpr info r1 = resolved_operator_of(^^{ + });           // error
+                      ^
+"Test_name.c", line 47: note: the resolution of this operator is not available (it is known only for tokens obtained with std::meta::definition_tokens_of from a definition whose tokens are recorded with the "definition_tokens" flag or the [[edg::retain_tokens]] attribute, and, for a function template, only if its definition was parsed where it appears, which --parse_templates and --no_defer_parse_function_templates request)
+  constexpr info r1 = resolved_operator_of(^^{ + });           // error
+                                          ^
+
+"Test_name.c", line 48: error: expression must have a constant value
+  constexpr info r2 = resolved_operator_of(rebuilt(plus_of(^^k)));  // error
+                      ^
+"Test_name.c", line 48: note: the resolution of this operator is not available (it is known only for tokens obtained with std::meta::definition_tokens_of from a definition whose tokens are recorded with the "definition_tokens" flag or the [[edg::retain_tokens]] attribute, and, for a function template, only if its definition was parsed where it appears, which --parse_templates and --no_defer_parse_function_templates request)
+  constexpr info r2 = resolved_operator_of(rebuilt(plus_of(^^k)));  // error
+                                          ^
+
+"Test_name.c", line 49: error: expression must have a constant value
+  constexpr info r3 = resolved_operator_of(plus_of(^^tt));     // error
+                      ^
+"Test_name.c", line 49: note: this operator is template-dependent; its resolution is known only in an instantiation
+  constexpr info r3 = resolved_operator_of(plus_of(^^tt));     // error
+                                          ^
+
+"Test_name.c", line 23: warning: variable "n1" was declared but never referenced
+  constexpr std::size_t n1 = tokens_of(^^int).size();         // error
+                        ^
+
+"Test_name.c", line 24: warning: variable "k1" was declared but never referenced
+  constexpr token_kind k1 = token_kind_of(^^{});               // error
+                       ^
+
+"Test_name.c", line 25: warning: variable "v1" was declared but never referenced
+  constexpr info v1 = token_value_of(^^{ x });                 // error
+                 ^
+
+"Test_name.c", line 26: warning: variable "s1" was declared but never referenced
+  constexpr auto s1 = token_spelling_of(^^not_recorded);       // error
+                 ^
+
+"Test_name.c", line 27: warning: variable "l1" was declared but never referenced
+  constexpr auto l1 = token_location_of(^^{});                 // error
+                 ^
+
+"Test_name.c", line 28: warning: variable "d1" was declared but never referenced
+  constexpr info d1 = definition_tokens_of(^^not_recorded);    // error
+                 ^
+
+"Test_name.c", line 29: warning: variable "d2" was declared but never referenced
+  constexpr info d2 = definition_tokens_of(^^plain);           // error
+                 ^
+
+"Test_name.c", line 30: warning: variable "d3" was declared but never referenced
+  constexpr info d3 = definition_tokens_of(^^int);             // error
+                 ^
+
+"Test_name.c", line 32: warning: variable "o1" was declared but never referenced
+  constexpr operators o1 = operator_of(^^{ + });               // error
+                      ^
+
+"Test_name.c", line 33: warning: variable "o2" was declared but never referenced
+  constexpr operators o2 = operator_of(^^{ operator + x });    // error
+                      ^
+
+"Test_name.c", line 34: warning: variable "o3" was declared but never referenced
+  constexpr operators o3 = operator_of(^^{ operator int });    // error
+                      ^
+
+"Test_name.c", line 46: warning: variable "r0" was declared but never referenced
+  constexpr info r0 = resolved_operator_of(plus_of(^^k));      // OK
+                 ^
+
+"Test_name.c", line 47: warning: variable "r1" was declared but never referenced
+  constexpr info r1 = resolved_operator_of(^^{ + });           // error
+                 ^
+
+"Test_name.c", line 48: warning: variable "r2" was declared but never referenced
+  constexpr info r2 = resolved_operator_of(rebuilt(plus_of(^^k)));  // error
+                 ^
+
+"Test_name.c", line 49: warning: variable "r3" was declared but never referenced
+  constexpr info r3 = resolved_operator_of(plus_of(^^tt));     // error
+                 ^
+
+14 errors detected in the compilation of "Test_name.c".

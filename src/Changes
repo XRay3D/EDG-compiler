@@ -1,6 +1,46 @@
 Version 7.1
 
 10/7/26
+Querying the operator function selected for an operator token
+
+With --set_flag=injection, the following EDG extensions are now declared in
+<experimental/meta> (namespace std::meta):
+
+  info resolved_operator_of(info tok);
+                        // The operator function selected by overload
+                        // resolution for the operator token tok, or tok
+                        // itself if no operator function is called there
+                        // (e.g., for a built-in operator).
+  bool is_resolved_through_adl(info tok);
+                        // The function was found only by
+                        // argument-dependent lookup.
+  bool is_rewritten_operator(info tok);
+                        // The operation was rewritten in terms of another
+                        // comparison operator (e.g., "!=" using "==").
+  bool has_reversed_operands(info tok);
+                        // The operands were reversed for such a rewrite.
+
+tok must come from std::meta::definition_tokens_of (possibly through
+std::meta::tokens_of) for a definition whose tokens are recorded (with the
+"definition_tokens" flag or the [[edg::retain_tokens]] attribute).  The
+outcome of overload resolution is recorded while such a definition is parsed,
+so there is no cost otherwise.  For example:
+
+  namespace ns { struct N {}; bool operator==(N, N); }
+  [[edg::retain_tokens]] bool f(ns::N a, ns::N b) { return a != b; }
+  // For the "!=" token t of the body of f, resolved_operator_of(t) is
+  // ^^ns::operator==, and is_resolved_through_adl(t) and
+  // is_rewritten_operator(t) are true.
+
+In a function template, an operator that does not depend on a template
+parameter is resolved if the template definition is parsed where it appears
+(which --parse_templates --no_defer_parse_function_templates requests); for a
+template-dependent operator, resolved_operator_of is not a constant.  Calls of
+operator() on objects and new and delete expressions are not covered yet:
+resolved_operator_of returns the token for them.
+
+
+10/7/26
 Querying the tokens of token sequences and of definitions
 
 With --set_flag=injection, the following EDG extensions are now declared in

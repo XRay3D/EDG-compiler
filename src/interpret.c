@@ -19013,9 +19013,14 @@ See do_constexpr_intrinsic_call for the meaning of the parameters.
       for (j = k; j < end; j = next_token_index(cache, j + 1)) {
         /* Each token gets a fresh token sequence number, so that the pieces
            can be interpolated and injected in any order. */
-        a_cached_token  copy(*(*cache)[j]);
-        copy.set_seq_number(assign_new_token_sequence_number());
+        a_cached_token           copy(*(*cache)[j]);
+        a_token_sequence_number  tsn = assign_new_token_sequence_number();
+        copy.set_seq_number(tsn);
         one->append_token(move_from(&copy));
+        /* Keep the link to an original token of a definition, if any (for
+           std::meta::resolved_operator_of). */
+        note_token_copy(tsn, (*cache)[j]->get_starting_seq_number(),
+                        /*source_is_original=*/FALSE);
       }  /* for */
       k = next_token_index(cache, end);
       terminate_token_cache(one);
@@ -19267,18 +19272,25 @@ member of a class template), or NULL if there is none.
 
 
 static const a_token_cache *definition_tokens_source(
-                                               a_reflection_value  *rvp,
-                                               a_boolean           *is_class)
+                                        a_reflection_value  *rvp,
+                                        a_boolean           *is_class,
+                                        a_boolean           *resolutions_known)
 /*
 Return the cache holding the tokens of the definition of the entity reflected
 by *rvp (a function, class, namespace, or template), or NULL if they are not
 available.  *is_class is set to TRUE if the tokens are those of the template
 cache of a class (template), which include its base-clause (if any) and the
-braces of its body.
+braces of its body.  *resolutions_known is set to TRUE if the outcomes of
+overload resolution for the operators of the definition were recorded (see
+record_operator_resolution): always for recorded tokens, and for the tokens of
+a function template if they were recorded during its prototype instantiation
+(see note_template_operator_resolutions).
 */
 {
   const a_token_cache  *result = NULL;
   a_symbol_ptr         sym = NULL;
+  a_boolean            recorded = FALSE;
+  a_routine_ptr        proto_rp = NULL;
 
   *is_class = FALSE;
   strip_template_arg(rvp);
@@ -19288,6 +19300,7 @@ braces of its body.
       {
         a_routine_ptr  rp = (a_routine_ptr)rvp->entity.ptr;
         result = recorded_definition_tokens_for(make_tagged_ptr(rp));
+        recorded = result != NULL;
         sym = symbol_for(rp);
         if (result == NULL && sym != NULL &&
             (sym->kind == (a_symbol_kind)sk_routine ||
@@ -19298,7 +19311,12 @@ braces of its body.
           a_symbol_ptr  templ_sym =
                              sym->variant.routine.instance_ptr->template_sym;
           if (templ_sym != NULL) {
+            a_template_symbol_supplement_ptr  tssp =
+                                    template_supplement_for_symbol(templ_sym);
             result = template_cache_tokens_for_symbol(templ_sym);
+            if (tssp != NULL && symbol_is(templ_sym, sk_function_template)) {
+              proto_rp = tssp->variant.function.routine;
+            }  /* if */
           }  /* if */
         }  /* if */
       }
@@ -19308,6 +19326,7 @@ braces of its body.
         a_type_ptr  tp = skip_typerefs((a_type_ptr)rvp->entity.ptr);
         if (is_class_struct_union_type(tp)) {
           result = recorded_definition_tokens_for(make_tagged_ptr(tp));
+          recorded = result != NULL;
           if (result == NULL) {
             a_template_ptr  templ = tp->variant.class_struct_union.extra_info->
                                                               assoc_template;
@@ -19324,6 +19343,9 @@ braces of its body.
         a_template_ptr  templ = (a_template_ptr)rvp->entity.ptr;
         *is_class = templ->kind == (a_template_kind)templk_class ||
                     templ->kind == (a_template_kind)templk_member_class;
+        if (templ->kind == (a_template_kind)templk_function) {
+          proto_rp = templ->prototype_instantiation.routine;
+        }  /* if */
         if (symbol_for(templ) != NULL) {
           result = template_cache_tokens_for_symbol(symbol_for(templ));
         }  /* if */
@@ -19338,6 +19360,7 @@ braces of its body.
             scope->variant.assoc_namespace != NULL) {
           result = recorded_definition_tokens_for(
                               make_tagged_ptr(scope->variant.assoc_namespace));
+          recorded = result != NULL;
         }  /* if */
       }
       break;
@@ -19345,10 +19368,14 @@ braces of its body.
       result = recorded_definition_tokens_for(
                    make_tagged_ptr(skip_namespace_aliases(
                                     (a_namespace_ptr)rvp->entity.ptr)));
+      recorded = result != NULL;
       break;
     default:
       break;
   }  /* switch */
+  *resolutions_known = result != NULL &&
+                       (recorded ||
+                        template_operator_resolutions_recorded(proto_rp));
   return result;
 }  /* definition_tokens_source */
 
@@ -19376,17 +19403,17 @@ See do_constexpr_intrinsic_call for the meaning of the parameters.
 */
 {
   a_boolean            result = TRUE;
-  a_boolean            is_class;
+  a_boolean            is_class, resolutions_known;
   const a_token_cache  *src = definition_tokens_source(
                                          (a_reflection_value*)p_arg_bytes[0],
-                                         &is_class);
+                                         &is_class, &resolutions_known);
 
   if (src == NULL) {
     info_with_pos(ec_definition_tokens_unavailable, &call_node->position, ips);
     do_constexpr_fail(result);
   } else {
     a_token_cache  *cache = new_fe<a_token_cache>(/*reusable=*/TRUE);
-    copy_definition_tokens(src, cache);
+    copy_definition_tokens(src, cache, resolutions_known);
     if (is_class && !cache->is_empty()) {
       /* The cached tokens of a class template start with its base-clause (if
          any) and include the braces of the class body: keep only what is
@@ -19416,6 +19443,119 @@ See do_constexpr_intrinsic_call for the meaning of the parameters.
   }  /* if */
   return result;
 }  /* do_constexpr_std_meta_definition_tokens_of */
+
+
+static const an_operator_resolution *operator_resolution_of_token(
+                                             a_reflection_value  *rvp,
+                                             a_boolean           *p_known)
+/*
+*rvp is the argument of std::meta::resolved_operator_of or of one of the
+related predicates.  If it is a reflection of a token sequence whose first
+token is a copy of a token of a definition whose operator resolutions were
+recorded (see note_token_copy), set *p_known to TRUE and return the recorded
+outcome of overload resolution for that token, or NULL if none was recorded
+(e.g., for a built-in operator).  Otherwise, set *p_known to FALSE and return
+NULL.
+*/
+{
+  const an_operator_resolution  *result = NULL;
+  a_reflection_value            rv = *rvp;
+  a_token_cache                 *cache = cache_of_token_sequence(&rv);
+
+  *p_known = FALSE;
+  if (cache != NULL) {
+    size_t  k = next_token_index(cache, 0);
+    if (k < cache->length() && !(*cache)[k]->is(tok_end_of_source)) {
+      a_token_sequence_number  orig = original_token_sequence_number(
+                                      (*cache)[k]->get_starting_seq_number());
+      if (orig != NO_TOKEN_SEQUENCE_NUMBER) {
+        *p_known = TRUE;
+        result = operator_resolution_for(orig);
+      }  /* if */
+    }  /* if */
+  }  /* if */
+  return result;
+}  /* operator_resolution_of_token */
+
+
+static a_boolean do_constexpr_std_meta_resolved_operator_of(
+                                   an_interpreter_state        *ips,
+                                   ARG_UNUSED a_routine_ptr    callee,
+                                   an_expr_node_ptr            call_node,
+                                   a_byte                      **p_arg_bytes,
+                                   a_byte                      *result_storage,
+                                   a_byte                      *complete_obj)
+/*
+Implement std::meta::resolved_operator_of(<reflection_value>), an EDG
+extension.  The argument must be a reflection of a token sequence whose first
+token comes from std::meta::definition_tokens_of (possibly through
+std::meta::tokens_of) for a definition whose operator resolutions were
+recorded.  If overload resolution selected an operator function for the
+operator that the token is, the result is a reflection of that function;
+otherwise (a built-in operator, or a token that is not an operator of an
+expression), the result is the argument itself.  The evaluation fails if the
+operator is template-dependent (the outcome is known only in an
+instantiation).
+
+See do_constexpr_intrinsic_call for the meaning of the parameters.
+*/
+{
+  a_boolean                     result = TRUE, known;
+  a_reflection_value            *rvp = (a_reflection_value*)p_arg_bytes[0];
+  a_reflection_value            *result_rvp =
+                                          (a_reflection_value*)result_storage;
+  const an_operator_resolution  *orp = operator_resolution_of_token(rvp,
+                                                                    &known);
+
+  if (!known) {
+    info_with_pos(ec_operator_resolution_unavailable, &call_node->position,
+                  ips);
+    do_constexpr_fail(result);
+  } else if (orp != NULL && orp->is_dependent) {
+    info_with_pos(ec_operator_resolution_dependent, &call_node->position, ips);
+    do_constexpr_fail(result);
+  } else {
+    if (orp != NULL && orp->routine != NULL) {
+      /* An operator function was selected. */
+      result_rvp->entity.kind = iek_routine;
+      result_rvp->entity.ptr = (char*)orp->routine;
+      result_rvp->local_scope_number = FILE_SCOPE_NUMBER;
+    } else {
+      /* No operator function: the result is the token. */
+      *result_rvp = *rvp;
+    }  /* if */
+    mark_subobject_initialized(result_storage, complete_obj);
+  }  /* if */
+  return result;
+}  /* do_constexpr_std_meta_resolved_operator_of */
+
+
+DEFINE_entity_predicate(std_meta, is_resolved_through_adl,
+  ([&]{
+    a_boolean                     known;
+    const an_operator_resolution  *orp = operator_resolution_of_token(rvp,
+                                                                      &known);
+    answer = orp != NULL && orp->routine != NULL && orp->found_through_adl;
+  }))
+
+
+DEFINE_entity_predicate(std_meta, is_rewritten_operator,
+  ([&]{
+    a_boolean                     known;
+    const an_operator_resolution  *orp = operator_resolution_of_token(rvp,
+                                                                      &known);
+    answer = orp != NULL && orp->routine != NULL && orp->is_rewritten;
+  }))
+
+
+DEFINE_entity_predicate(std_meta, has_reversed_operands,
+  ([&]{
+    a_boolean                     known;
+    const an_operator_resolution  *orp = operator_resolution_of_token(rvp,
+                                                                      &known);
+    answer = orp != NULL && orp->routine != NULL &&
+             orp->has_reversed_operands;
+  }))
 
 
 static a_boolean do_constexpr_std_meta_queue_injection(

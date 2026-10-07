@@ -183,6 +183,10 @@ must be defined in interpret.c to implement its evaluation.
   M(std_meta, token_value_of, "(r)r") \
   M(std_meta, token_location_of, "(r)L") \
   M(std_meta, definition_tokens_of, "(r)r") \
+  M(std_meta, resolved_operator_of, "(r)r") \
+  M(std_meta, is_resolved_through_adl, "(r)b") \
+  M(std_meta, is_rewritten_operator, "(r)b") \
+  M(std_meta, has_reversed_operands, "(r)b") \
   M(std_meta, is_annotation, "(r)b") \
   M(std_meta, is_public, "(r)b") \
   M(std_meta, is_protected, "(r)b") \

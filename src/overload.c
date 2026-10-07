@@ -333,6 +333,51 @@ enclosing class or a constraint expression are being rescanned.
 }
 
 
+#if REFLECTION_ENABLING_POSSIBLE
+
+static a_boolean is_primary_operator_call(an_opname_kind             kind,
+                                          a_nondependent_call_depth  depth)
+/*
+Return TRUE if a check for overloading of the operator kind with the given
+nondependent call depth is the one for the operator token as written (rather
+than one for an operation derived from it, such as the operator= of a
+synthesized compound assignment, or a further operator-> in a chain).  The
+first operator-> of a chain has depth 1.
+*/
+{
+  return depth == 0 || (kind == (an_opname_kind)onk_arrow && depth == 1);
+}  /* is_primary_operator_call */
+
+
+static a_boolean operator_resolution_is_recorded(void)
+/*
+Return TRUE if the outcome of overload resolution for an operator scanned in
+the current context is to be recorded for std::meta::resolved_operator_of (see
+record_operator_resolution).  That is the case for the operators of a
+definition whose tokens are recorded, and for those of the prototype
+instantiation of a function template done at its definition when requested
+(see operator_resolutions_wanted).  Real instantiations are not recorded:
+their tokens are those of the template.  To avoid any cost otherwise, nothing
+is recorded unless token injection is enabled.
+*/
+{
+  a_boolean  result = FALSE;
+
+  if (!reflection_enabled || !injection_enabled ||
+      !operator_resolutions_wanted()) {
+    /* Not requested. */
+  } else if (is_prototype_instantiation_context()) {
+    result = !scope_stack_top().in_concept_rescan &&
+             !is_nested_in_real_instantiation();
+  } else {
+    result = depth_innermost_instantiation_scope == NO_SCOPE_DEPTH;
+  }  /* if */
+  return result;
+}  /* operator_resolution_is_recorded */
+
+#endif /* REFLECTION_ENABLING_POSSIBLE */
+
+
 static void clear_overload_set_traversal_block(
                           a_candidate_function_ptr        *candidate_functions,
                           ARG_UNUSED a_symbol_ptr         *inaccessible_match,
@@ -6947,13 +6992,14 @@ accept_function:
     a_candidate_function_ptr candidate = *candidate_functions;
     candidate->gpp_init_list_ctor_param_case = TRUE;
   }  /* if */
-#if BACK_END_IS_CP_GEN_BE
+#if BACK_END_IS_CP_GEN_BE || REFLECTION_ENABLING_POSSIBLE
   if (from_arg_dep_lookup) {
     /* The C++-generating back end will need to know if the call was
-       resolved only because of argument-dependent lookup. */
+       resolved only because of argument-dependent lookup (and so does
+       std::meta::is_resolved_through_adl). */
     (*candidate_functions)->found_through_adl = TRUE;
   }  /* if */
-#endif /* BACK_END_IS_CP_GEN_BE */
+#endif /* BACK_END_IS_CP_GEN_BE || REFLECTION_ENABLING_POSSIBLE */
   goto end_of_routine;
 reject_function:
   if (notes != NULL) {
@@ -20290,6 +20336,18 @@ selected, it is stored in *rewritten_candidate.
                                    operator_tok_seq_number,
                                    operator_position_2);
     *processed = TRUE;
+#if REFLECTION_ENABLING_POSSIBLE
+    if (is_primary_operator_call(kind, call_depth) &&
+        rewritten_candidate == NULL && operator_resolution_is_recorded()) {
+      /* Record that the operator is template-dependent. */
+      record_operator_resolution(operator_tok_seq_number,
+                                 (a_routine_ptr)NULL,
+                                 /*is_dependent=*/TRUE,
+                                 /*found_through_adl=*/FALSE,
+                                 /*is_rewritten=*/FALSE,
+                                 /*has_reversed_operands=*/FALSE);
+    }  /* if */
+#endif /* REFLECTION_ENABLING_POSSIBLE */
   } else if (!curr_expr_kind_is_const() || constexpr_enabled) {
     /* Check for operator overloading (but not in pre-C++11 constant
        expressions). */
@@ -20662,6 +20720,20 @@ no_applicable_operator_function:
 #endif /* DEBUG */
             *processed = TRUE;
             function_symbol = fundamental_symbol_of(proj_function_symbol);
+#if REFLECTION_ENABLING_POSSIBLE
+            if (is_primary_operator_call(kind, call_depth) &&
+                rewritten_candidate == NULL &&
+                operator_resolution_is_recorded()) {
+              /* Record the operator function selected. */
+              record_operator_resolution(
+                        operator_tok_seq_number,
+                        func_sym_routine(function_symbol),
+                        /*is_dependent=*/FALSE,
+                        candidate_functions->found_through_adl,
+                        candidate_functions->supplemental_comparison_candidate,
+                        candidate_functions->supplemental_reversed_candidate);
+            }  /* if */
+#endif /* REFLECTION_ENABLING_POSSIBLE */
             routine_type = routine_symbol_type(function_symbol);
             member_is_best_match = function_symbol->is_class_member;
             /* In C++/CLI, the best match can be a static operator function. */

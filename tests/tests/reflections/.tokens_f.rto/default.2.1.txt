@@ -1,0 +1,1 @@
+eccp -DTEST_NUMBER=2 --c++26 --set_flag=reflection --set_flag=injection --set_flag=definition_tokens --parse_templates --no_defer_parse_function_templates Test_name.c

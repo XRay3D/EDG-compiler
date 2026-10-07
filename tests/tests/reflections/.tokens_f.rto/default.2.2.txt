@@ -1,0 +1,19 @@
+./a.out
+line 51: '=' -> built-in
+line 51: '+' -> built-in
+line 52: '=' -> built-in
+line 52: '+' -> S S::operator+(S) const (operator_of: +)
+line 53: '=' -> built-in
+line 53: '+' -> ns::N ns::operator+(ns::N, ns::N) (operator_of: +) [ADL]
+line 54: '=' -> built-in
+line 54: '!=' -> bool ns::operator==(ns::N, ns::N) (operator_of: ==) [ADL] [rewritten]
+line 55: '=' -> built-in
+line 55: '<' -> std::strong_ordering ns::operator<=>(ns::N, int) (operator_of: <=>) [ADL] [rewritten] [reversed]
+line 56: '[' -> int &V::operator[](int) (operator_of: [])
+line 56: '=' -> built-in
+line 57: '->' -> S *P::operator->() (operator_of: ->)
+line 57: '+' -> built-in
+line 57: '+' -> built-in
+line 57: '+' -> built-in
+line 57: '+' -> built-in
+g: s1 + s2 -> S S::operator+(S) const

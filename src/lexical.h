@@ -4185,11 +4185,13 @@ extern void cache_curr_token_fresh(a_token_cache *cache);
 
 #if REFLECTION_ENABLING_POSSIBLE
 extern void copy_definition_tokens(const a_token_cache  *src,
-                                   a_token_cache        *dest);
+                                   a_token_cache        *dest,
+                                   a_boolean            resolutions_known);
 extern void save_definition_tokens(a_tagged_pointer     entity,
                                    const a_token_cache  *tokens);
 extern const a_token_cache *recorded_definition_tokens_for(
                                                    a_tagged_pointer  entity);
+extern a_boolean has_retain_tokens_attribute(an_attribute_ptr  attributes);
 extern a_boolean definition_tokens_wanted(an_attribute_ptr  attributes);
 extern a_token_sequence_number begin_recording_definition_tokens(void);
 extern void end_recording_definition_tokens(
@@ -4198,6 +4200,49 @@ extern void end_recording_definition_tokens(
                                   a_boolean                include_curr_token);
 extern void suspend_definition_recording(void);
 extern void resume_definition_recording(void);
+
+/*
+The outcome of overload resolution for an operator of a definition whose
+tokens are recorded (see record_operator_resolution).
+*/
+typedef struct an_operator_resolution {
+  a_routine_ptr	routine;
+			/* The operator function selected, or NULL if the
+			   operator is template-dependent. */
+  a_bit_field	is_dependent:1;
+			/* TRUE if the operator is template-dependent (in a
+			   template definition). */
+  a_bit_field	found_through_adl:1;
+			/* TRUE if the function was found only by
+			   argument-dependent lookup. */
+  a_bit_field	is_rewritten:1;
+			/* TRUE if the operation was rewritten in terms of
+			   another comparison operator (C++20). */
+  a_bit_field	has_reversed_operands:1;
+			/* TRUE if the operands were reversed for such a
+			   rewrite. */
+} an_operator_resolution;
+
+extern a_boolean operator_resolutions_wanted(void);
+extern void begin_recording_operator_resolutions(void);
+extern void end_recording_operator_resolutions(void);
+extern void record_operator_resolution(
+                                a_token_sequence_number  tsn,
+                                a_routine_ptr            routine,
+                                a_boolean                is_dependent,
+                                a_boolean                found_through_adl,
+                                a_boolean                is_rewritten,
+                                a_boolean                has_reversed_operands);
+extern const an_operator_resolution *operator_resolution_for(
+                                           a_token_sequence_number  tsn);
+extern void note_template_operator_resolutions(a_routine_ptr  proto_routine);
+extern a_boolean template_operator_resolutions_recorded(
+                                                 a_routine_ptr  proto_routine);
+extern void note_token_copy(a_token_sequence_number  copy_tsn,
+                            a_token_sequence_number  source_tsn,
+                            a_boolean                source_is_original);
+extern a_token_sequence_number original_token_sequence_number(
+                                           a_token_sequence_number  tsn);
 #endif /* REFLECTION_ENABLING_POSSIBLE */
 /* Save a token stream in a token cache. */
 extern void cache_token_stream(a_token_cache      *cache,
