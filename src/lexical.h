@@ -4182,6 +4182,23 @@ extern a_shared_token build_tok_resolved_type(a_type_ptr              type,
 /* Save the current token in a token cache. */
 extern void cache_curr_token(a_token_cache *cache);
 extern void cache_curr_token_fresh(a_token_cache *cache);
+
+#if REFLECTION_ENABLING_POSSIBLE
+extern void copy_definition_tokens(const a_token_cache  *src,
+                                   a_token_cache        *dest);
+extern void save_definition_tokens(a_tagged_pointer     entity,
+                                   const a_token_cache  *tokens);
+extern const a_token_cache *recorded_definition_tokens_for(
+                                                   a_tagged_pointer  entity);
+extern a_boolean definition_tokens_wanted(an_attribute_ptr  attributes);
+extern a_token_sequence_number begin_recording_definition_tokens(void);
+extern void end_recording_definition_tokens(
+                                  a_tagged_pointer         entity,
+                                  a_token_sequence_number  first_tsn,
+                                  a_boolean                include_curr_token);
+extern void suspend_definition_recording(void);
+extern void resume_definition_recording(void);
+#endif /* REFLECTION_ENABLING_POSSIBLE */
 /* Save a token stream in a token cache. */
 extern void cache_token_stream(a_token_cache      *cache,
                                a_token_set_array  stop_tokens);

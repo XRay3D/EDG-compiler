@@ -414,6 +414,37 @@ namespace std {
 
     consteval void __report_tokens(info  tokens);
 
+    /* EDG extensions for examining token sequences.  tokens_of decomposes a
+       token sequence into single-token sequences (which can be reassembled
+       with the "\{...}" interpolator); the token_*_of functions describe the
+       first token of a sequence; definition_tokens_of returns the tokens of
+       the definition of a function, class, namespace, or template (see the
+       "definition_tokens" flag and the [[edg::retain_tokens]] attribute). */
+    enum class token_kind {
+      identifier,
+      keyword,
+      punctuator,
+      integer_literal,
+      floating_literal,
+      character_literal,
+      string_literal,
+      boolean_literal,
+      user_defined_literal,
+      interpolated
+    };
+
+    consteval std::vector<info> tokens_of(info  tokens);
+
+    consteval token_kind token_kind_of(info  token);
+
+    consteval std::string_view token_spelling_of(info  tokens);
+
+    consteval info token_value_of(info  token);
+
+    consteval std::source_location token_location_of(info  token);
+
+    consteval info definition_tokens_of(info  r);
+
 #ifdef __EDG_INJECTION_ENABLED__
     /* Accumulates a token sequence in which the pieces added with += are
        separated by the given separator, a comma by default.  The default is

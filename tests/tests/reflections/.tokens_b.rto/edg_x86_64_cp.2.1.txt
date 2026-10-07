@@ -1,0 +1,65 @@
+eccp -DTEST_NUMBER=2 --c++26 --set_flag=reflection --set_flag=injection --c++26 Test_name.c
+"Test_name.c", line 57: error: call to consteval function "std::define_static_string(__R &&) [with __R=std::string_view]" did not produce a valid constant expression
+  std::printf("%-16s: %s\n", "^^twice", define_static_string(token_spelling_of(definition_tokens_of((decltype(^^0){}))))); 
+                                                            ^
+"Test_name.c", line 57: note: the tokens of the definition of this entity are not available (they are recorded only with the "definition_tokens" flag or the [[edg::retain_tokens]] attribute)
+  std::printf("%-16s: %s\n", "^^twice", define_static_string(token_spelling_of(definition_tokens_of((decltype(^^0){}))))); 
+                                                                                                   ^
+
+"Test_name.c", line 58: error: call to consteval function "std::define_static_string(__R &&) [with __R=std::string_view]" did not produce a valid constant expression
+  std::printf("%-16s: %s\n", "^^Box", define_static_string(token_spelling_of(definition_tokens_of((decltype(^^0){}))))); 
+                                                          ^
+"Test_name.c", line 58: note: the tokens of the definition of this entity are not available (they are recorded only with the "definition_tokens" flag or the [[edg::retain_tokens]] attribute)
+  std::printf("%-16s: %s\n", "^^Box", define_static_string(token_spelling_of(definition_tokens_of((decltype(^^0){}))))); 
+                                                                                                 ^
+
+"Test_name.c", line 59: error: call to consteval function "std::define_static_string(__R &&) [with __R=std::string_view]" did not produce a valid constant expression
+  std::printf("%-16s: %s\n", "^^Box<int>", define_static_string(token_spelling_of(definition_tokens_of((decltype(^^0){}))))); 
+                                                               ^
+"Test_name.c", line 59: note: the tokens of the definition of this entity are not available (they are recorded only with the "definition_tokens" flag or the [[edg::retain_tokens]] attribute)
+  std::printf("%-16s: %s\n", "^^Box<int>", define_static_string(token_spelling_of(definition_tokens_of((decltype(^^0){}))))); 
+                                                                                                      ^
+
+"Test_name.c", line 60: error: call to consteval function "std::define_static_string(__R &&) [with __R=std::string_view]" did not produce a valid constant expression
+  std::printf("%-16s: %s\n", "^^Box<int>::get", define_static_string(token_spelling_of(definition_tokens_of((decltype(^^0){}))))); 
+                                                                    ^
+"Test_name.c", line 60: note: the tokens of the definition of this entity are not available (they are recorded only with the "definition_tokens" flag or the [[edg::retain_tokens]] attribute)
+  std::printf("%-16s: %s\n", "^^Box<int>::get", define_static_string(token_spelling_of(definition_tokens_of((decltype(^^0){}))))); 
+                                                                                                           ^
+
+"Test_name.c", line 61: error: call to consteval function "std::define_static_string(__R &&) [with __R=std::string_view]" did not produce a valid constant expression
+  std::printf("%-16s: %s\n", "^^marked", define_static_string(token_spelling_of(definition_tokens_of((decltype(^^0){}))))); 
+                                                             ^
+"Test_name.c", line 61: note: the tokens of the definition of this entity are not available (they are recorded only with the "definition_tokens" flag or the [[edg::retain_tokens]] attribute)
+  std::printf("%-16s: %s\n", "^^marked", define_static_string(token_spelling_of(definition_tokens_of((decltype(^^0){}))))); 
+                                                                                                    ^
+
+"Test_name.c", line 62: error: call to consteval function "std::define_static_string(__R &&) [with __R=std::string_view]" did not produce a valid constant expression
+  std::printf("%-16s: %s\n", "^^S", define_static_string(token_spelling_of(definition_tokens_of((decltype(^^0){}))))); 
+                                                        ^
+"Test_name.c", line 62: note: the tokens of the definition of this entity are not available (they are recorded only with the "definition_tokens" flag or the [[edg::retain_tokens]] attribute)
+  std::printf("%-16s: %s\n", "^^S", define_static_string(token_spelling_of(definition_tokens_of((decltype(^^0){}))))); 
+                                                                                               ^
+
+"Test_name.c", line 63: error: call to consteval function "std::define_static_string(__R &&) [with __R=std::string_view]" did not produce a valid constant expression
+  std::printf("%-16s: %s\n", "^^S::get", define_static_string(token_spelling_of(definition_tokens_of((decltype(^^0){}))))); 
+                                                             ^
+"Test_name.c", line 63: note: the tokens of the definition of this entity are not available (they are recorded only with the "definition_tokens" flag or the [[edg::retain_tokens]] attribute)
+  std::printf("%-16s: %s\n", "^^S::get", define_static_string(token_spelling_of(definition_tokens_of((decltype(^^0){}))))); 
+                                                                                                    ^
+
+"Test_name.c", line 64: error: call to consteval function "std::define_static_string(__R &&) [with __R=std::string_view]" did not produce a valid constant expression
+  std::printf("%-16s: %s\n", "^^N", define_static_string(token_spelling_of(definition_tokens_of((decltype(^^0){}))))); 
+                                                        ^
+"Test_name.c", line 64: note: the tokens of the definition of this entity are not available (they are recorded only with the "definition_tokens" flag or the [[edg::retain_tokens]] attribute)
+  std::printf("%-16s: %s\n", "^^N", define_static_string(token_spelling_of(definition_tokens_of((decltype(^^0){}))))); 
+                                                                                               ^
+
+"Test_name.c", line 65: error: call to consteval function "std::define_static_string(__R &&) [with __R=std::string_view]" did not produce a valid constant expression
+  std::printf("%-16s: %s\n", "^^N::f", define_static_string(token_spelling_of(definition_tokens_of((decltype(^^0){}))))); return 0; 
+                                                           ^
+"Test_name.c", line 65: note: the tokens of the definition of this entity are not available (they are recorded only with the "definition_tokens" flag or the [[edg::retain_tokens]] attribute)
+  std::printf("%-16s: %s\n", "^^N::f", define_static_string(token_spelling_of(definition_tokens_of((decltype(^^0){}))))); return 0; 
+                                                                                                  ^
+
+9 errors detected in the compilation of "Test_name.c".

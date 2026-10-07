@@ -2922,6 +2922,17 @@ EXTERN_THREAD a_boolean
 			   unless reflection_enabled is also TRUE. */
 
 EXTERN_THREAD a_boolean
+		definition_tokens_enabled;
+			/* TRUE if the tokens of every definition of a
+			   (non-template) function, class, or namespace are
+			   recorded so that std::meta::definition_tokens_of can
+			   return them.  When FALSE, only the definitions of
+			   entities declared with [[edg::retain_tokens]] are
+			   recorded.  (The tokens of templates are always
+			   available.)  Of no use unless reflection_enabled is
+			   also TRUE. */
+
+EXTERN_THREAD a_boolean
 		gnu_imaginary_literals_allowed;
 			/* TRUE if imaginary literals (e.g., "1.0i") are
 			   allowed in the current mode. */

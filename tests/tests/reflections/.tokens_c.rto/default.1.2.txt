@@ -1,0 +1,26 @@
+./a.out
+classify(5) = 12
+[trace] line 182: block
+[trace] line 184: for ( int i = 0 ; i < n ; ++ i )
+[trace] line 185: if ( i % 2 == 0 ) -> then
+[trace] line 184: for ( int i = 0 ; i < n ; ++ i )
+[trace] line 185: if ( i % 2 == 0 ) -> else
+[trace] line 184: for ( int i = 0 ; i < n ; ++ i )
+[trace] line 185: if ( i % 2 == 0 ) -> then
+[trace] line 184: for ( int i = 0 ; i < n ; ++ i )
+[trace] line 185: if ( i % 2 == 0 ) -> else
+[trace] line 184: for ( int i = 0 ; i < n ; ++ i )
+[trace] line 185: if ( i % 2 == 0 ) -> then
+[trace] line 186: while ( score > 3 )
+[trace] line 188: switch ( score )
+[trace] line 190: case 1
+[trace] line 193: do
+[trace] line 193: do
+classify_logged(5) = 12
+[trace] line 207: block
+[trace] line 208: if ( x > limit ) -> then
+[trace] line 207: block
+[trace] line 208: if ( x > limit ) -> else
+[trace] line 212: for ( int k = 0 ; k < 2 ; ++ k )
+[trace] line 212: for ( int k = 0 ; k < 2 ; ++ k )
+step(5) = 2, step(1) = 2 (plain: 2, 2)

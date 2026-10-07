@@ -4169,6 +4169,18 @@ nested class.
 #endif /* FRIEND_AND_MEMBER_DEFINITIONS_MAY_BE_MOVED_OUT_OF_CLASS */
 #endif /* TEMPLATE_INSTANTIATIONS_IN_SOURCE_SEQUENCE_LISTS */
 #endif /* GENERATE_SOURCE_SEQUENCE_LISTS */
+#if REFLECTION_ENABLING_POSSIBLE
+          if (!is_template_based &&
+              (definition_tokens_wanted(rp->source_corresp.attributes) ||
+               recorded_definition_tokens_for(make_tagged_ptr(class_type)) !=
+                                                                     NULL)) {
+            /* Record the tokens of the definition for
+               std::meta::definition_tokens_of (as for those of the class, if
+               they were recorded). */
+            save_definition_tokens(make_tagged_ptr(rp),
+                                   rfp->function_body_token_cache.ptr());
+          }  /* if */
+#endif /* REFLECTION_ENABLING_POSSIBLE */
           rescan_shared_reusable_cache(rfp->function_body_token_cache);
           if (!rfp->function_body_token_cache->is_reusable) {
             /* The cache was not marked for reuse; drop the reference to it. */
@@ -33345,6 +33357,11 @@ classes.
   a_class_symbol_supplement_ptr    cssp = class_symbol_supp(tag_sym);
   a_class_type_supplement_ptr      ctsp = class_type_supp(class_type);
   a_routine_fixup_ptr              saved_routine_fixup = NULL;
+#if REFLECTION_ENABLING_POSSIBLE
+  a_boolean                        record_class_tokens = FALSE;
+  a_token_sequence_number          first_class_body_tsn =
+                                                     NO_TOKEN_SEQUENCE_NUMBER;
+#endif /* REFLECTION_ENABLING_POSSIBLE */
   a_template_symbol_supplement_ptr class_tssp;
   a_token_sequence_number          last_token_number_of_definition;
   a_class_def_state                class_state;
@@ -33809,6 +33826,16 @@ classes.
 #endif /* MICROSOFT_EXTENSIONS_ALLOWED */
     /* Advance past the left brace. */
     (void)get_token();
+#if REFLECTION_ENABLING_POSSIBLE
+    /* Record the tokens of the class body (the member-specification between
+       the braces) for std::meta::definition_tokens_of if requested.  (The
+       tokens of class templates are available from their template cache.) */
+    if (!C_mode() && !is_template_instantiation &&
+        definition_tokens_wanted(class_type->source_corresp.attributes)) {
+      record_class_tokens = TRUE;
+      first_class_body_tsn = begin_recording_definition_tokens();
+    }  /* if */
+#endif /* REFLECTION_ENABLING_POSSIBLE */
     add_stop_token(tok_rbrace);
     if (!C_mode()) {
       saved_routine_fixup = curr_routine_fixup;
@@ -34297,6 +34324,14 @@ next_declaration:
        scope is popped and before add_end_of_construct_source_sequence_entry
        is called. */
     process_curr_token_pragmas();
+#if REFLECTION_ENABLING_POSSIBLE
+    if (record_class_tokens) {
+      /* The current token is the closing "}", which is not recorded. */
+      end_recording_definition_tokens(make_tagged_ptr(class_type),
+                                      first_class_body_tsn,
+                                      /*include_curr_token=*/FALSE);
+    }  /* if */
+#endif /* REFLECTION_ENABLING_POSSIBLE */
     /* Check for and ignore the closing brace. */
     last_token_number_of_definition = curr_token_sequence_number;
     /* Since a brace is a single-character token, pos_curr_token is also the

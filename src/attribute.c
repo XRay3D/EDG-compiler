@@ -428,6 +428,12 @@ static constexpr an_attr_descr known_attr_table[] = {
   { "weak", "", "s+", ak_weak },
 #endif /* SUN_EXTENSIONS_ALLOWED && GNU_EXTENSIONS_ALLOWED */
 
+#if REFLECTION_ENABLING_POSSIBLE
+  /* [[edg::retain_tokens]]: record the tokens of the definition of the entity
+     for std::meta::definition_tokens_of (see definition_tokens_wanted).  The
+     attribute has no other effect. */
+  { "retain_tokens", "", "c+[edg]", ak_unrecognized },
+#endif /* REFLECTION_ENABLING_POSSIBLE */
 #if INCLUDE_EDG_TEST_ATTRIBUTES
   /* Attributes used for testing by EDG. */
   { "testattr1", "?(*)", "c+", ak_unrecognized },
@@ -973,9 +979,9 @@ static constexpr a_const_char *valid_attribute_namespaces[] = {
   "__gnu__",
   "msvc",
   "_Clang",
-#if INCLUDE_EDG_TEST_ATTRIBUTES
+#if INCLUDE_EDG_TEST_ATTRIBUTES || REFLECTION_ENABLING_POSSIBLE
   "edg",
-#endif /* INCLUDE_EDG_TEST_ATTRIBUTES */
+#endif /* INCLUDE_EDG_TEST_ATTRIBUTES || REFLECTION_ENABLING_POSSIBLE */
   NULL  /* must be last */
 };
 

@@ -2530,6 +2530,7 @@ STATIC_THREAD a_flag_name
 #if REFLECTION_ENABLING_POSSIBLE
   { "reflection", &reflection_enabled },
   { "injection", &injection_enabled },
+  { "definition_tokens", &definition_tokens_enabled },
 #endif /* REFLECTION_ENABLING_POSSIBLE */
   { "alias_templ_intrinsics", &alias_templ_intrinsics_enabled },
   { "var_templ_intrinsics", &var_templ_intrinsics_enabled },
@@ -13824,6 +13825,7 @@ variables declared in cmd_line.h.
 #if REFLECTION_ENABLING_POSSIBLE
   reflection_enabled = DEFAULT_REFLECTION_ENABLED;
   injection_enabled = DEFAULT_INJECTION_ENABLED;
+  definition_tokens_enabled = FALSE;
 #endif /* REFLECTION_ENABLING_POSSIBLE */
   variadic_using_decls_enabled = FALSE;
   class_template_arg_deduction_enabled = FALSE;

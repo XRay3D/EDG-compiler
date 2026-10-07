@@ -1,5 +1,57 @@
 Version 7.1
 
+10/7/26
+Querying the tokens of token sequences and of definitions
+
+With --set_flag=injection, the following EDG extensions are now declared in
+<experimental/meta> (namespace std::meta):
+
+  std::vector<info> tokens_of(info seq);
+                        // The tokens of a token sequence, each as a token
+                        // sequence of its own.
+  token_kind token_kind_of(info tok);
+                        // identifier, keyword, punctuator, integer_literal,
+                        // floating_literal, character_literal,
+                        // string_literal, boolean_literal,
+                        // user_defined_literal, or interpolated.
+  std::string_view token_spelling_of(info seq);
+                        // The text of the tokens.
+  info token_value_of(info tok);
+                        // A reflection of the value of a literal (or of an
+                        // interpolated value).
+  std::source_location token_location_of(info tok);
+                        // The position of the token.
+  info definition_tokens_of(info r);
+                        // The tokens of the definition of a function, class,
+                        // namespace, or template.
+
+The functions taking "tok" use the first token of the sequence.  A sequence
+can be reassembled from its tokens with the existing interpolation syntax (no
+"+" operator on token sequences is needed), and the result can be injected:
+
+  consteval info rebuild(info seq) {
+    info out = ^^{};
+    for (info t : tokens_of(seq)) out = ^^{ \{out} \{t} };
+    return out;
+  }
+
+definition_tokens_of returns the body of a function (with its
+ctor-initializer, if any), the member-specification of a class (including
+the bodies of member functions defined in it), or the declarations of all the
+definitions of a namespace.  The tokens of templates are always available.
+Those of other entities are recorded only if the new flag
+--set_flag=definition_tokens is set, or if the entity is declared with the
+new attribute [[edg::retain_tokens]]:
+
+  [[edg::retain_tokens]] int f(int a) { if (a) return 1; return 0; }
+  int f_logged(int a) { ... }   // Can be defined by injecting tokens
+                                // computed from definition_tokens_of(^^f).
+
+Finally, the operand of the \str interpolator may now be a constexpr
+character array (such as the result of std::define_static_string), not only
+a string literal.
+
+
 10/9/26  [GH #27]
 Clearer diagnostic when auto is deduced from an incomplete type
 

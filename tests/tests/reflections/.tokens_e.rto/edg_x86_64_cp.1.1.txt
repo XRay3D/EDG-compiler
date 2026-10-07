@@ -1,0 +1,90 @@
+fe_only -DTEST_NUMBER=1 --c++26 --set_flag=reflection --set_flag=injection Test_name.c
+"Test_name.c", line 20: error: expression must have a constant value
+  constexpr std::size_t n1 = tokens_of(^^int).size();         // error
+                             ^
+"Test_name.c", line 20: note: invalid reflection for intrinsic metafunction
+  constexpr std::size_t n1 = tokens_of(^^int).size();         // error
+                                      ^
+
+"Test_name.c", line 21: error: expression must have a constant value
+  constexpr token_kind k1 = token_kind_of(^^{});               // error
+                            ^
+"Test_name.c", line 21: note: invalid reflection for intrinsic metafunction
+  constexpr token_kind k1 = token_kind_of(^^{});               // error
+                                         ^
+
+"Test_name.c", line 22: error: expression must have a constant value
+  constexpr info v1 = token_value_of(^^{ x });                 // error
+                      ^
+"Test_name.c", line 22: note: invalid reflection for intrinsic metafunction
+  constexpr info v1 = token_value_of(^^{ x });                 // error
+                                    ^
+
+"Test_name.c", line 23: error: expression must have a constant value
+  constexpr auto s1 = token_spelling_of(^^not_recorded);       // error
+                      ^
+"Test_name.c", line 23: note: invalid reflection for intrinsic metafunction
+  constexpr auto s1 = token_spelling_of(^^not_recorded);       // error
+                                       ^
+
+"Test_name.c", line 24: error: expression must have a constant value
+  constexpr auto l1 = token_location_of(^^{});                 // error
+                      ^
+"Test_name.c", line 24: note: invalid reflection for intrinsic metafunction
+  constexpr auto l1 = token_location_of(^^{});                 // error
+                                       ^
+
+"Test_name.c", line 25: error: expression must have a constant value
+  constexpr info d1 = definition_tokens_of(^^not_recorded);    // error
+                      ^
+"Test_name.c", line 25: note: the tokens of the definition of this entity are not available (they are recorded only with the "definition_tokens" flag or the [[edg::retain_tokens]] attribute)
+  constexpr info d1 = definition_tokens_of(^^not_recorded);    // error
+                                          ^
+
+"Test_name.c", line 26: error: expression must have a constant value
+  constexpr info d2 = definition_tokens_of(^^plain);           // error
+                      ^
+"Test_name.c", line 26: note: the tokens of the definition of this entity are not available (they are recorded only with the "definition_tokens" flag or the [[edg::retain_tokens]] attribute)
+  constexpr info d2 = definition_tokens_of(^^plain);           // error
+                                          ^
+
+"Test_name.c", line 27: error: expression must have a constant value
+  constexpr info d3 = definition_tokens_of(^^int);             // error
+                      ^
+"Test_name.c", line 27: note: the tokens of the definition of this entity are not available (they are recorded only with the "definition_tokens" flag or the [[edg::retain_tokens]] attribute)
+  constexpr info d3 = definition_tokens_of(^^int);             // error
+                                          ^
+
+"Test_name.c", line 20: warning: variable "n1" was declared but never referenced
+  constexpr std::size_t n1 = tokens_of(^^int).size();         // error
+                        ^
+
+"Test_name.c", line 21: warning: variable "k1" was declared but never referenced
+  constexpr token_kind k1 = token_kind_of(^^{});               // error
+                       ^
+
+"Test_name.c", line 22: warning: variable "v1" was declared but never referenced
+  constexpr info v1 = token_value_of(^^{ x });                 // error
+                 ^
+
+"Test_name.c", line 23: warning: variable "s1" was declared but never referenced
+  constexpr auto s1 = token_spelling_of(^^not_recorded);       // error
+                 ^
+
+"Test_name.c", line 24: warning: variable "l1" was declared but never referenced
+  constexpr auto l1 = token_location_of(^^{});                 // error
+                 ^
+
+"Test_name.c", line 25: warning: variable "d1" was declared but never referenced
+  constexpr info d1 = definition_tokens_of(^^not_recorded);    // error
+                 ^
+
+"Test_name.c", line 26: warning: variable "d2" was declared but never referenced
+  constexpr info d2 = definition_tokens_of(^^plain);           // error
+                 ^
+
+"Test_name.c", line 27: warning: variable "d3" was declared but never referenced
+  constexpr info d3 = definition_tokens_of(^^int);             // error
+                 ^
+
+8 errors detected in the compilation of "Test_name.c".

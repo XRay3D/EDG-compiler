@@ -1,0 +1,18 @@
+./a.out
+^^square        : { return x * x; }
+^^Point         : int x, y; int sum ( ) const { return x + y; } struct Inner { int z; };
+^^Point::sum    : { return x + y; }
+^^Point::Inner  : int z;
+^^geo           : int one ( ) { return 1; } int two ( ) { return 2; }
+^^geo::two      : { return 2; }
+^^Holder        : consteval { for ( int i : { 1, 2 } ) ( void ) i; } int h ( ) { return 5; }
+^^Holder::h     : { return 5; }
+^^twice         : { return v + v; }
+^^Box           : T value; T get ( ) const { return value; }
+^^Box<int>      : T value; T get ( ) const { return value; }
+^^Box<int>::get : { return value; }
+^^marked        : { if ( a ) return 1; else return 0; }
+^^S             : int v; int get ( ) const { return v; }
+^^S::get        : { return v; }
+^^N             : int f ( ) { return 7; }
+^^N::f          : { return 7; }

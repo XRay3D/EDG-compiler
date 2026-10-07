@@ -1,1 +1,5 @@
 demo1.sft.cpp:rp:-DTEST_NUMBER=1:FAIL(COMPILE):
+tokens_b.sft.cpp:rp:-DTEST_NUMBER=1 --set_flag=definition_tokens:FAIL(COMPILE):
+tokens_b.sft.cpp:rp:-DTEST_NUMBER=2 --c++26:FAIL(COMPILE):
+tokens_c.sft.cpp:rp:-DTEST_NUMBER=1:FAIL(COMPILE):
+tokens_d.sft.cpp:rp:-DTEST_NUMBER=1:REQUIREMENTS NOT MET:

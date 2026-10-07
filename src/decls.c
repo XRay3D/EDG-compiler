@@ -16478,10 +16478,30 @@ it's a definition and NULL otherwise).
       discard_curr_construct_pragmas();
     } else {
       a_decl_sequence_number old_decl_seq_counter = decl_seq_counter;
+#if REFLECTION_ENABLING_POSSIBLE
+      /* Record the tokens of the namespace body (the declarations between the
+         braces) for std::meta::definition_tokens_of if requested.  Each
+         definition of the namespace adds to the recorded tokens. */
+      a_boolean                record_tokens =
+                                 definition_tokens_wanted(nsp->source_corresp.
+                                                          attributes) ||
+                                 definition_tokens_wanted(attributes);
+      a_token_sequence_number  first_body_tsn = NO_TOKEN_SEQUENCE_NUMBER;
+      if (record_tokens) {
+        first_body_tsn = begin_recording_definition_tokens();
+      }  /* if */
+#endif /* REFLECTION_ENABLING_POSSIBLE */
       /* Scan the namespace body. */
       add_stop_token(tok_rbrace);
       scan_namespace_declaration_list(/*is_top_level=*/FALSE);
       remove_stop_token(tok_rbrace);
+#if REFLECTION_ENABLING_POSSIBLE
+      if (record_tokens) {
+        /* The current token is the closing "}", which is not recorded. */
+        end_recording_definition_tokens(make_tagged_ptr(nsp), first_body_tsn,
+                                        /*include_curr_token=*/FALSE);
+      }  /* if */
+#endif /* REFLECTION_ENABLING_POSSIBLE */
       if (exporting_decl && is_unnamed_namespace &&
           decl_seq_counter == old_decl_seq_counter) {
         pos_error(ec_export_must_introduce_name, &namespace_pos);
@@ -21129,6 +21149,12 @@ to:
 
     rewritten_code = new_fe<a_token_cache>(/*reusable=*/TRUE);
     (void)consteval_blocks->map(curr_token_sequence_number, rewritten_code);
+#if REFLECTION_ENABLING_POSSIBLE
+    /* The inserted tokens are not part of the source: if the tokens of an
+       enclosing definition are being recorded (for
+       std::meta::definition_tokens_of), record the original ones only. */
+    suspend_definition_recording();
+#endif /* REFLECTION_ENABLING_POSSIBLE */
     insert_string_into_token_stream("static_assert(([]() consteval->void ",
                                     /*insert_after=*/TRUE,
                                     /*p_expand_macros=*/FALSE,
@@ -21141,6 +21167,9 @@ to:
       cache_curr_token(rewritten_code);
       (void)get_token();
     }  while (prev_token != tok_void);
+#if REFLECTION_ENABLING_POSSIBLE
+    resume_definition_recording();
+#endif /* REFLECTION_ENABLING_POSSIBLE */
     /* The original brace following the original "consteval" should be next. */
     check_assertion(curr_token == tok_lbrace);
     /* Skip to the matching brace.  Note that other delimiters need not be
@@ -21161,6 +21190,9 @@ to:
       pos_error(ec_exp_rbrace, &pos_curr_token);
     } else {
       a_source_position  end_pos = pos_curr_token;
+#if REFLECTION_ENABLING_POSSIBLE
+      suspend_definition_recording();
+#endif /* REFLECTION_ENABLING_POSSIBLE */
       insert_string_into_token_stream("(), true));",
                                       /*insert_after=*/TRUE,
                                       /*p_expand_macros=*/FALSE,
@@ -21173,6 +21205,9 @@ to:
         cache_curr_token_fresh(rewritten_code);
         (void)get_token();
       } while (prev_token != tok_semicolon);
+#if REFLECTION_ENABLING_POSSIBLE
+      resume_definition_recording();
+#endif /* REFLECTION_ENABLING_POSSIBLE */
     }  /* if */
   } else {
     /* Skip the consteval block tokens.  We will rescan the rewritten version

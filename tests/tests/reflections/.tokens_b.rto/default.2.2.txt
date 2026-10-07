@@ -1,0 +1,10 @@
+./a.out
+^^twice         : { return v + v; }
+^^Box           : T value; T get ( ) const { return value; }
+^^Box<int>      : T value; T get ( ) const { return value; }
+^^Box<int>::get : { return value; }
+^^marked        : { if ( a ) return 1; else return 0; }
+^^S             : int v; int get ( ) const { return v; }
+^^S::get        : { return v; }
+^^N             : int f ( ) { return 7; }
+^^N::f          : { return 7; }

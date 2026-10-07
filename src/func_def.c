@@ -3066,7 +3066,26 @@ member declaration (allowed in Microsoft mode only).
       push_lexical_state_stack();
       begin_caching_fetched_tokens(/*include_curr_token=*/TRUE);
     }  /* if */
+#if REFLECTION_ENABLING_POSSIBLE
+    /* Record the tokens of the definition for std::meta::definition_tokens_of
+       if requested. */
+    a_boolean                record_tokens = definition_tokens_wanted(
+                                     routine_ptr->source_corresp.attributes);
+    a_token_sequence_number  first_body_tsn = NO_TOKEN_SEQUENCE_NUMBER;
+    if (record_tokens) {
+      first_body_tsn = begin_recording_definition_tokens();
+    }  /* if */
+#endif /* REFLECTION_ENABLING_POSSIBLE */
     scan_function_body(routine_ptr, func_info, flags);
+#if REFLECTION_ENABLING_POSSIBLE
+    if (record_tokens) {
+      /* scan_function_body leaves the closing "}" as the current token. */
+      end_recording_definition_tokens(make_tagged_ptr(routine_ptr),
+                                      first_body_tsn,
+                                      /*include_curr_token=*/
+                                                  curr_token == tok_rbrace);
+    }  /* if */
+#endif /* REFLECTION_ENABLING_POSSIBLE */
     if (need_func_tokens_for_module) {
       end_caching_fetched_tokens();
       save_function_definition_for_module_write(

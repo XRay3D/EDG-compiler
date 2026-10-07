@@ -7,6 +7,10 @@ as well as tutorials for developers.
 
 - [Debugging Tips & Tricks](tips_and_tricks/DEBUGGING.md)
 
+## Extensions
+
+- [Token Metafunctions](extensions/TOKEN_METAFUNCTIONS.md)
+
 ## Tutorials
 
 - [Writing Your First Test](tutorials/FIRST_TEST.md)

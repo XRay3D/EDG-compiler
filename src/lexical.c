@@ -3799,6 +3799,318 @@ cache.
   cache_curr_token(cache);
 }  /* cache_curr_token_fresh */
 
+#if REFLECTION_ENABLING_POSSIBLE
+
+/*
+The type of the map from an entity (a function, class, or namespace) to the
+tokens of its definition, recorded while the definition is scanned (see
+begin_recording_definition_tokens).
+*/
+using an_entity_to_definition_tokens_map =
+                              Ptr_map<a_tagged_pointer, a_shared_token_cache>;
+
+STATIC_THREAD an_entity_to_definition_tokens_map
+		*recorded_definition_tokens;
+			/* The tokens of the definitions recorded so far (for
+			   std::meta::definition_tokens_of).  Allocated on
+			   first use. */
+
+
+void copy_definition_tokens(const a_token_cache  *src,
+                            a_token_cache        *dest)
+/*
+Append to dest a copy of the tokens of src, a cache holding the tokens of a
+definition, in a form suitable for rescanning in any context: each token gets
+a fresh token sequence number, the terminating tok_end_of_source (if any) and
+pragma entries are dropped, and the placeholders that template processing
+leaves in a template's token cache (the body of a member function or member
+class template extracted into its own cache, or a removed default argument or
+initializer) are replaced by the tokens they stand for.
+*/
+{
+  for (auto it = src->begin(); it != src->end(); ++it) {
+    const a_shared_token  &tok = *it;
+    if (tok->is(tok_end_of_source)) break;
+    if (tok->is_pragma()) continue;
+    if (tok->is(tok_removed_expr)) {
+      /* A removed expression (e.g., a default argument): copy its tokens. */
+      if (tok->get_removed_expression() != NULL) {
+        copy_definition_tokens(tok->get_removed_expression(), dest);
+      }  /* if */
+    } else if (tok->is_extracted_template_body()) {
+      /* The placeholder of a member body extracted into the member's own
+         template cache: copy that cache (the body), followed by the ";" the
+         placeholder stands for, if that ";" was not inserted by the
+         extraction. */
+      const an_extracted_template_descr  *etdp =
+                                           tok->get_extracted_template_descr();
+      a_template_symbol_supplement_ptr   tssp =
+                                  template_supplement_for_symbol(etdp->symbol);
+      if (tssp != NULL && tssp->cache != NULL &&
+          tssp->cache->tokens.ptr() != NULL) {
+        copy_definition_tokens(tssp->cache->tokens.ptr(), dest);
+      }  /* if */
+      if (!tok->is(tok_removed_template_body) && !etdp->semicolon_inserted) {
+        cache_token(dest, tok_semicolon, tok->get_source_position());
+      }  /* if */
+    } else {
+      a_cached_token  copy(*tok);
+      copy.set_seq_number(assign_new_token_sequence_number());
+      dest->append_token(move_from(&copy));
+    }  /* if */
+  }  /* for */
+}  /* copy_definition_tokens */
+
+
+void save_definition_tokens(a_tagged_pointer     entity,
+                            const a_token_cache  *tokens)
+/*
+Record the given tokens as (part of) the definition of entity.  If tokens were
+already recorded for it (e.g., for a namespace that is defined more than once),
+the new tokens are appended to them.
+*/
+{
+  a_shared_token_cache  cache;
+
+  if (recorded_definition_tokens == NULL) {
+    recorded_definition_tokens =
+             new_fe<an_entity_to_definition_tokens_map>(/*mask_width=*/8u);
+  }  /* if */
+  cache = recorded_definition_tokens->get(entity);
+  if (cache.ptr() == NULL) {
+    cache = shared_obj<a_token_cache>(/*is_reusable=*/TRUE);
+    recorded_definition_tokens->map(entity, cache);
+  }  /* if */
+  for (auto it = tokens->begin(); it != tokens->end(); ++it) {
+    if ((*it)->is(tok_end_of_source)) break;
+    cache->append_token(*it);
+  }  /* for */
+}  /* save_definition_tokens */
+
+
+const a_token_cache *recorded_definition_tokens_for(a_tagged_pointer  entity)
+/*
+Return the recorded tokens of the definition of entity (see
+begin_recording_definition_tokens), or NULL if none were recorded.  The
+returned cache is not terminated by a tok_end_of_source token.
+*/
+{
+  const a_token_cache  *result = NULL;
+
+  if (recorded_definition_tokens != NULL) {
+    a_shared_token_cache  cache = recorded_definition_tokens->get(entity);
+    result = cache.ptr();
+  }  /* if */
+  return result;
+}  /* recorded_definition_tokens_for */
+
+
+/*
+A recording of the tokens of a definition (see
+begin_recording_definition_tokens).  The tokens are accumulated in a cache of
+their own rather than by means of the background token caching of a lexical
+state: that caching is shared with the lookahead done while the definition is
+scanned (e.g., by disambiguation), which relies on the cache holding exactly
+the tokens fetched since it began.
+*/
+typedef struct a_definition_recording {
+  a_shared_token_cache
+		tokens;
+			/* The tokens fetched so far. */
+  a_token_sequence_number
+		last_tsn;
+			/* The token sequence number of the last token added to
+			   tokens.  Tokens rescanned for lookahead or from a
+			   cache that do not follow it are not added again. */
+} a_definition_recording;
+
+STATIC_THREAD Dyn_array<a_definition_recording*>
+		*definition_recordings;
+			/* The recordings in progress (innermost last); entries
+			   beyond definition_recording_depth are kept for
+			   reuse. */
+
+STATIC_THREAD sizeof_t
+		definition_recording_depth;
+			/* The number of recordings in progress. */
+
+STATIC_THREAD sizeof_t
+		definition_recording_suspended;
+			/* Nonzero if the tokens fetched are not to be recorded
+			   (see suspend_definition_recording). */
+
+
+static a_boolean definition_recording_active(void)
+/*
+Return TRUE if the tokens of a definition are being recorded.
+*/
+{
+  return definition_recording_depth != 0;
+}  /* definition_recording_active */
+
+
+static a_definition_recording *innermost_definition_recording(void)
+/*
+Return the innermost recording in progress.
+*/
+{
+  check_assertion(definition_recording_active());
+  return (*definition_recordings)[definition_recording_depth - 1];
+}  /* innermost_definition_recording */
+
+
+static void record_curr_token_for_definition(void)
+/*
+A definition is being recorded and the current token has just been fetched
+(or the recording has just begun).  Add the current token to the innermost
+recording, unless it has already been added.
+*/
+{
+  a_definition_recording  *drp = innermost_definition_recording();
+
+  if (curr_token != tok_end_of_source &&
+      curr_token_sequence_number != NO_TOKEN_SEQUENCE_NUMBER &&
+      curr_token_sequence_number > drp->last_tsn) {
+    cache_curr_token(drp->tokens.ptr());
+    drp->last_tsn = curr_token_sequence_number;
+  }  /* if */
+}  /* record_curr_token_for_definition */
+
+
+static void add_tokens_to_definition_recording(const a_token_cache  *tokens)
+/*
+The given tokens are those of a definition recorded while an enclosing
+definition was being recorded.  Since only the innermost recording receives
+the tokens fetched, add them to the enclosing recording (now the innermost
+one), if any.  Tokens that the recording already has (or that precede them)
+are ignored, so that the recorded tokens remain in token sequence number
+order.
+*/
+{
+  if (definition_recording_active()) {
+    a_definition_recording  *drp = innermost_definition_recording();
+    for (auto it = tokens->begin(); it != tokens->end(); ++it) {
+      const a_shared_token  &tok = *it;
+      if (tok->is(tok_end_of_source)) break;
+      if (tok->get_starting_seq_number() > drp->last_tsn) {
+        drp->tokens->append_token(tok);
+        drp->last_tsn = tok->get_ending_seq_number();
+      }  /* if */
+    }  /* for */
+  }  /* if */
+}  /* add_tokens_to_definition_recording */
+
+
+a_boolean definition_tokens_wanted(an_attribute_ptr  attributes)
+/*
+Return TRUE if the tokens of a definition about to be scanned should be
+recorded for std::meta::definition_tokens_of.  That is the case for every
+definition if the "definition_tokens" flag is set, and otherwise for the
+definitions of entities declared with the [[edg::retain_tokens]] attribute
+(attributes is the attribute list of the entity, or NULL), as well as for the
+definitions nested in one being recorded (only the innermost recording receives
+the tokens fetched, so a nested definition must be recorded to reach the
+enclosing recording).  Definitions in templates are not recorded: the tokens of
+templates are already cached.
+*/
+{
+  a_boolean  result = FALSE;
+
+  if (!reflection_enabled || is_template_dependent_context()) {
+    /* Not wanted. */
+  } else if (definition_tokens_enabled || definition_recording_active()) {
+    result = TRUE;
+  } else {
+    an_attribute_ptr  ap;
+    for (ap = attributes; ap != NULL && !result; ap = ap->next) {
+      if (ap->name != NULL && strcmp(ap->name, "retain_tokens") == 0 &&
+          ap->namespace_name != NULL &&
+          strcmp(ap->namespace_name, "edg") == 0) {
+        result = TRUE;
+      }  /* if */
+    }  /* for */
+  }  /* if */
+  return result;
+}  /* definition_tokens_wanted */
+
+
+a_token_sequence_number begin_recording_definition_tokens(void)
+/*
+Start recording the tokens of a definition, beginning with the current token.
+Return the token sequence number of the current token, to be passed to
+end_recording_definition_tokens.
+*/
+{
+  a_definition_recording  *drp;
+
+  if (definition_recordings == NULL) {
+    definition_recordings = new_fe<Dyn_array<a_definition_recording*>>();
+  }  /* if */
+  if (definition_recording_depth == definition_recordings->length()) {
+    drp = new_fe<a_definition_recording>();
+    definition_recordings->push_back(drp);
+  }  /* if */
+  drp = (*definition_recordings)[definition_recording_depth++];
+  drp->tokens = shared_obj<a_token_cache>(/*is_reusable=*/FALSE);
+  drp->last_tsn = NO_TOKEN_SEQUENCE_NUMBER;
+  record_curr_token_for_definition();
+  return curr_token_sequence_number;
+}  /* begin_recording_definition_tokens */
+
+
+void end_recording_definition_tokens(
+                                  a_tagged_pointer         entity,
+                                  a_token_sequence_number  first_tsn,
+                                  a_boolean                include_curr_token)
+/*
+Stop recording the tokens of a definition (see
+begin_recording_definition_tokens) and record those from the token whose
+token sequence number is first_tsn up to the current token (which is included
+if include_curr_token is TRUE) as (part of) the definition of entity.
+*/
+{
+  a_definition_recording  *drp = innermost_definition_recording();
+  a_shared_token_cache    fetched = drp->tokens;
+  a_token_cache           cache;
+
+  copy_tokens_from_cache(fetched.ptr(), first_tsn, curr_token_sequence_number,
+                         include_curr_token, &cache);
+  drp->tokens = a_shared_token_cache();
+  definition_recording_depth--;
+  save_definition_tokens(entity, &cache);
+  /* The enclosing recording (if any) did not see the tokens fetched during
+     this one (including those that are not part of the definition, such as
+     the closing brace). */
+  add_tokens_to_definition_recording(fetched.ptr());
+}  /* end_recording_definition_tokens */
+
+
+void suspend_definition_recording(void)
+/*
+Do not record the tokens fetched until resume_definition_recording is called
+(e.g., tokens inserted into the token stream to rewrite a construct, whose
+original tokens are recorded).  Calls may be nested.
+*/
+{
+  definition_recording_suspended++;
+}  /* suspend_definition_recording */
+
+
+void resume_definition_recording(void)
+/*
+Undo a call of suspend_definition_recording.  The current token is recorded
+if it is an original token that was fetched while recording was suspended.
+*/
+{
+  check_assertion(definition_recording_suspended != 0);
+  definition_recording_suspended--;
+  if (definition_recording_suspended == 0 && definition_recording_active()) {
+    record_curr_token_for_definition();
+  }  /* if */
+}  /* resume_definition_recording */
+
+#endif /* REFLECTION_ENABLING_POSSIBLE */
+
 
 static a_boolean is_template_reference(a_symbol_header_ptr	sym_hdr)
 /*
@@ -18849,6 +19161,14 @@ return_from_token_scan:
                                                     curr_token_sequence_number;
     }  /* if */
   }  /* if */
+#if REFLECTION_ENABLING_POSSIBLE
+  if (definition_recording_depth != 0 && definition_recording_suspended == 0 &&
+      !curr_lexical_state_stack_entry->suspend_caching_tokens &&
+      !scanning_microsoft_asm) {
+    /* Record the token for std::meta::definition_tokens_of. */
+    record_curr_token_for_definition();
+  }  /* if */
+#endif /* REFLECTION_ENABLING_POSSIBLE */
 #if DEBUG
   if (debug_level >= 3) {
     /* Write out the current token. */
@@ -30842,6 +31162,12 @@ are handled in lexical_init.)
     register_pch_saved_variables(saved_vars);
   }  /* if */
   register_trans_unit_variable(next_token_is_top_level_decl_start);
+#if REFLECTION_ENABLING_POSSIBLE
+  register_trans_unit_variable(recorded_definition_tokens);
+  register_trans_unit_variable(definition_recordings);
+  register_trans_unit_variable(definition_recording_depth);
+  register_trans_unit_variable(definition_recording_suspended);
+#endif /* REFLECTION_ENABLING_POSSIBLE */
   register_trans_unit_variable(curr_stop_token_stack_entry);
   register_trans_unit_variable(curr_lexical_state_stack_entry);
   register_trans_unit_variable(curr_token);

@@ -1,0 +1,13 @@
+./a.out
+[trace] checked_vector::push_back
+[trace] checked_vector::operator[], index 1
+[trace] checked_vector::at, index 2
+[trace] checked_vector::operator[], index 2
+[trace] checked_vector::front
+[trace] checked_vector::back
+v[1] = 2, at(2) = 3, front = 1, back = 4
+[trace] checked_vector::pop_back
+[trace] checked_vector::operator[], index 10
+caught: checked_vector::operator[]: index out of range
+[trace] checked_vector::pop_back
+caught: checked_vector::pop_back: empty vector

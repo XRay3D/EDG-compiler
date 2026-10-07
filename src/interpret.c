@@ -18763,6 +18763,526 @@ done:
 }  /* do_constexpr_std_meta___report_tokens */
 
 
+/*
+The kinds of tokens distinguished by std::meta::token_kind_of.  The values
+must match the enumerators of std::meta::token_kind in <experimental/meta>.
+*/
+typedef enum a_meta_token_kind {
+  mtk_identifier,
+  mtk_keyword,
+  mtk_punctuator,
+  mtk_integer_literal,
+  mtk_floating_literal,
+  mtk_character_literal,
+  mtk_string_literal,
+  mtk_boolean_literal,
+  mtk_user_defined_literal,
+  mtk_interpolated
+} a_meta_token_kind;
+
+
+static a_token_cache *cache_of_token_sequence(a_reflection_value  *rvp)
+/*
+If *rvp is a reflection of a token sequence, return the token cache holding
+its tokens (which is terminated by a tok_end_of_source token); otherwise,
+return NULL.
+*/
+{
+  a_token_cache  *result = NULL;
+
+  strip_template_arg(rvp);
+  if (rvp->entity.kind == iek_token_sequence) {
+    result = (a_token_cache*)((a_token_sequence*)rvp->entity.ptr)->
+                                                                  token_cache;
+  }  /* if */
+  return result;
+}  /* cache_of_token_sequence */
+
+
+static const an_immutable_cached_token *first_token_of_token_sequence(
+                                                     a_reflection_value  *rvp)
+/*
+If *rvp is a reflection of a token sequence that has at least one token,
+return its first token (pragma entries are skipped); otherwise, return NULL.
+*/
+{
+  const an_immutable_cached_token  *result = NULL;
+  a_token_cache                    *cache = cache_of_token_sequence(rvp);
+
+  if (cache != NULL) {
+    for (auto it = cache->begin(); it != cache->end(); ++it) {
+      if ((*it)->is_pragma()) continue;
+      if (!(*it)->is(tok_end_of_source)) result = (*it).ptr();
+      break;
+    }  /* for */
+  }  /* if */
+  return result;
+}  /* first_token_of_token_sequence */
+
+
+static void set_token_sequence_result(a_token_cache  *cache,
+                                      a_byte         *result_storage,
+                                      a_byte         *complete_obj)
+/*
+Store at result_storage a reflection of a new token sequence whose tokens are
+those of cache (which must be terminated by a tok_end_of_source token).
+*/
+{
+  a_reflection_value  *result_rvp = (a_reflection_value*)result_storage;
+  a_token_sequence    *tok_seq = alloc_token_sequence();
+
+  tok_seq->token_cache = cache;
+  result_rvp->entity.kind = iek_token_sequence;
+  result_rvp->entity.ptr = (char*)tok_seq;
+  result_rvp->local_scope_number = FILE_SCOPE_NUMBER;
+  mark_subobject_initialized(result_storage, complete_obj);
+}  /* set_token_sequence_result */
+
+
+static a_boolean do_constexpr_std_meta_tokens_of(
+                                        an_interpreter_state  *ips,
+                                        a_routine_ptr         callee,
+                                        an_expr_node_ptr      call_node,
+                                        a_byte                **p_arg_bytes,
+                                        a_byte                *result_storage,
+                                        a_byte                *complete_obj)
+/*
+Implement std::meta::tokens_of(<reflection_value>), an EDG extension.  The
+argument must be a reflection of a token sequence; the result is a
+std::vector<std::meta::info> holding, in order, a reflection of a token
+sequence made of each of its tokens.  Concatenating those sequences (e.g.,
+with the "\{...}" interpolator) produces a sequence equivalent to the
+original one.
+
+See do_constexpr_intrinsic_call for the meaning of the parameters.
+*/
+{
+  a_boolean      result = FALSE;
+  a_token_cache  *cache = cache_of_token_sequence(
+                                      (a_reflection_value*)p_arg_bytes[0]);
+  Dyn_array<a_reflection_value>
+                 result_reflections(0);
+
+  if (!ips->is_constant_evaluated || !constexpr_dynamic_alloc_enabled) {
+    /* Don't attempt to evaluate this call if a constant result is not needed,
+       because it could be somewhat expensive. */
+    do_constexpr_fail(result);
+    info_with_pos(ec_constexpr_expression_cannot_be_interpreted,
+                  &call_node->position, ips);
+  } else if (cache == NULL) {
+    do_constexpr_fail(result);
+    info_with_pos(ec_invalid_reflection_for_intrinsic, &call_node->position,
+                  ips);
+  } else {
+    for (auto it = cache->begin(); it != cache->end(); ++it) {
+      const a_shared_token  &tok = *it;
+      if (tok->is(tok_end_of_source)) break;
+      if (tok->is_pragma()) continue;
+      /* Each token gets a fresh token sequence number, so that the pieces
+         can be interpolated and injected in any order. */
+      a_token_cache   *one = new_fe<a_token_cache>(/*reusable=*/TRUE);
+      a_cached_token  copy(*tok);
+      a_token_sequence  *tok_seq = alloc_token_sequence();
+      copy.set_seq_number(assign_new_token_sequence_number());
+      one->append_token(move_from(&copy));
+      terminate_token_cache(one);
+      tok_seq->token_cache = one;
+      push_entity_reflection(&result_reflections, tok_seq, iek_token_sequence,
+                             FILE_SCOPE_NUMBER);
+    }  /* for */
+    result = make_info_vector(ips, callee, call_node, &result_reflections,
+                              result_storage, complete_obj);
+  }  /* if */
+  return result;
+}  /* do_constexpr_std_meta_tokens_of */
+
+
+static a_boolean do_constexpr_std_meta_token_kind_of(
+                                   an_interpreter_state        *ips,
+                                   ARG_UNUSED a_routine_ptr    callee,
+                                   an_expr_node_ptr            call_node,
+                                   a_byte                      **p_arg_bytes,
+                                   a_byte                      *result_storage,
+                                   ARG_UNUSED a_byte           *complete_obj)
+/*
+Implement std::meta::token_kind_of(<reflection_value>), an EDG extension.  The
+argument must be a reflection of a token sequence; the result is the
+std::meta::token_kind of its first token.
+
+See do_constexpr_intrinsic_call for the meaning of the parameters.
+*/
+{
+  a_boolean          result = TRUE;
+  const an_immutable_cached_token
+                     *tok = first_token_of_token_sequence(
+                                         (a_reflection_value*)p_arg_bytes[0]);
+  a_meta_token_kind  kind = mtk_punctuator;
+
+  if (tok == NULL) {
+    info_with_pos(ec_invalid_reflection_for_intrinsic, &call_node->position,
+                  ips);
+    do_constexpr_fail(result);
+  } else {
+    switch (tok->get_kind()) {
+      case tok_identifier:
+        kind = mtk_identifier;
+        break;
+      case tok_int_constant:
+        kind = mtk_integer_literal;
+        break;
+      case tok_float_constant:
+      case tok_fixed_point_constant:
+        kind = mtk_floating_literal;
+        break;
+      case tok_char_constant:
+        kind = mtk_character_literal;
+        break;
+      case tok_string_literal:
+        kind = mtk_string_literal;
+        break;
+      case tok_ud_literal:
+        kind = mtk_user_defined_literal;
+        break;
+      case tok_gen_constant:
+        kind = mtk_interpolated;
+        break;
+      case tok_true:
+      case tok_false:
+        kind = mtk_boolean_literal;
+        break;
+      default:
+        kind = is_keyword_token(tok->get_kind()) ? mtk_keyword
+                                                 : mtk_punctuator;
+        break;
+    }  /* switch */
+    set_integer_value((an_integer_value*)result_storage,
+                      (a_host_large_integer)kind);
+  }  /* if */
+  return result;
+}  /* do_constexpr_std_meta_token_kind_of */
+
+
+static a_boolean do_constexpr_std_meta_token_spelling_of(
+                                        an_interpreter_state  *ips,
+                                        a_routine_ptr         callee,
+                                        an_expr_node_ptr      call_node,
+                                        a_byte                **p_arg_bytes,
+                                        a_byte                *result_storage,
+                                        a_byte                *complete_obj)
+/*
+Implement std::meta::token_spelling_of(<reflection_value>), an EDG extension.
+The argument must be a reflection of a token sequence; the result is a
+std::string_view of the text of its tokens (separated by single spaces where
+needed).  The text of a literal is formed from its value, so it may differ
+from the original spelling (e.g., for a hexadecimal integer literal).
+
+See do_constexpr_intrinsic_call for the meaning of the parameters.
+*/
+{
+  a_boolean      result = FALSE;
+  a_token_cache  *cache = cache_of_token_sequence(
+                                       (a_reflection_value*)p_arg_bytes[0]);
+
+  if (cache == NULL) {
+    do_constexpr_fail(result);
+    info_with_pos(ec_invalid_reflection_for_intrinsic, &call_node->position,
+                  ips);
+  } else {
+    a_type_ptr  rtp = skip_typerefs(callee->type), tp;
+    char        *str;
+    init_token_string(cache->get_first_token()->get_source_position(),
+                      /*keep_spacing=*/FALSE,
+                      /*suppress_identifier_wrapping=*/TRUE);
+    add_token_cache_to_string(cache);
+    /* Copy the text into storage that lasts as long as the translation unit
+       (make_reflective_string_view caches views by the address of the
+       text). */
+    str = make_copy_of_token_string();
+    check_assertion(type_is(rtp, tk_routine));
+    tp = skip_typerefs(rtp->variant.routine.return_type);
+    result = make_reflective_string_view(ips, tp, str,
+                                         integer_type(plain_char_int_kind),
+                                         result_storage, complete_obj);
+  }  /* if */
+  return result;
+}  /* do_constexpr_std_meta_token_spelling_of */
+
+
+static a_boolean do_constexpr_std_meta_token_value_of(
+                                   an_interpreter_state        *ips,
+                                   ARG_UNUSED a_routine_ptr    callee,
+                                   an_expr_node_ptr            call_node,
+                                   a_byte                      **p_arg_bytes,
+                                   a_byte                      *result_storage,
+                                   a_byte                      *complete_obj)
+/*
+Implement std::meta::token_value_of(<reflection_value>), an EDG extension.  The
+argument must be a reflection of a token sequence whose first token is a
+literal or an interpolated value; the result is a reflection of the value (a
+constant): that of an arithmetic, character, boolean, or string literal; the
+value passed to the literal operator for a user-defined literal; and, for an
+interpolated value, the value itself (or, if the value is a reflection, that
+reflection).
+
+See do_constexpr_intrinsic_call for the meaning of the parameters.
+*/
+{
+  a_boolean               result = TRUE;
+  const an_immutable_cached_token
+                          *tok = first_token_of_token_sequence(
+                                         (a_reflection_value*)p_arg_bytes[0]);
+  const a_constant        *value = NULL;
+  a_reflection_value      *rvp = (a_reflection_value*)result_storage;
+  a_memory_region_number  region_to_switch_back_to;
+
+  if (tok != NULL) {
+    if (tok->is_ud_literal()) {
+      value = tok->get_ud_literal_descr()->value_con;
+    } else if (tok->is_constant()) {
+      value = tok->get_constant();
+    }  /* if */
+  }  /* if */
+  if (value == NULL) {
+    info_with_pos(ec_invalid_reflection_for_intrinsic, &call_node->position,
+                  ips);
+    do_constexpr_fail(result);
+  } else if (value->kind == (a_constant_repr_kind)ck_reflection) {
+    /* An interpolated reflection: return it. */
+    *rvp = value->variant.reflection;
+    mark_subobject_initialized(result_storage, complete_obj);
+  } else {
+    a_constant_ptr  val_cp = local_constant();
+    copy_constant(value, val_cp);
+    val_cp->expr = NULL;
+    switch_to_file_scope_region(&region_to_switch_back_to);
+    val_cp = move_local_constant_to_il(&val_cp);
+    rvp->entity.kind = iek_constant;
+    rvp->entity.ptr = (char*)val_cp;
+    rvp->local_scope_number = FILE_SCOPE_NUMBER;
+    switch_back_to_original_region(region_to_switch_back_to);
+    mark_subobject_initialized(result_storage, complete_obj);
+  }  /* if */
+  return result;
+}  /* do_constexpr_std_meta_token_value_of */
+
+
+static a_boolean do_constexpr_std_meta_token_location_of(
+                                        an_interpreter_state  *ips,
+                                        a_routine_ptr         callee,
+                                        an_expr_node_ptr      call_node,
+                                        a_byte                **p_arg_bytes,
+                                        a_byte                *result_storage,
+                                        a_byte                *complete_obj)
+/*
+Implement std::meta::token_location_of(<reflection_value>), an EDG extension.
+The argument must be a reflection of a token sequence that has at least one
+token; the result is a std::source_location describing the position of its
+first token.
+
+See do_constexpr_intrinsic_call for the meaning of the parameters.
+*/
+{
+  a_boolean          result = TRUE;
+  const an_immutable_cached_token
+                     *tok = first_token_of_token_sequence(
+                                         (a_reflection_value*)p_arg_bytes[0]);
+  a_type_ptr         rtp = skip_typerefs(callee->type), sl_type;
+  a_source_position  pos;
+
+  if (tok == NULL || tok->get_source_position()->seq == 0) {
+    info_with_pos(ec_invalid_reflection_for_intrinsic, &call_node->position,
+                  ips);
+    do_constexpr_fail(result);
+  } else {
+    pos = *tok->get_source_position();
+    check_assertion(type_is(rtp, tk_routine));
+    sl_type = skip_typerefs(rtp->variant.routine.return_type);
+    (void)build_source_location_value(ips, &pos,
+                                      /*use_current_function=*/FALSE,
+                                      sl_type, result_storage, complete_obj,
+                                      &result);
+  }  /* if */
+  return result;
+}  /* do_constexpr_std_meta_token_location_of */
+
+
+static const a_token_cache *template_cache_tokens_for_symbol(
+                                                         a_symbol_ptr  sym)
+/*
+Return the token cache of the template associated with sym (a template or a
+member of a class template), or NULL if there is none.
+*/
+{
+  const a_token_cache               *result = NULL;
+  a_template_symbol_supplement_ptr  tssp = NULL;
+
+  if (sym->kind == (a_symbol_kind)sk_member_function) {
+    if (sym->variant.routine.instance_ptr != NULL) {
+      tssp = sym->variant.routine.instance_ptr->template_info;
+    }  /* if */
+  } else {
+    tssp = template_supplement_for_symbol(sym);
+  }  /* if */
+  if (tssp != NULL) {
+    a_template_cache_ptr  tcp = cache_for_template(tssp);
+    if (tcp != NULL) result = tcp->tokens.ptr();
+  }  /* if */
+  return result;
+}  /* template_cache_tokens_for_symbol */
+
+
+static const a_token_cache *definition_tokens_source(
+                                               a_reflection_value  *rvp,
+                                               a_boolean           *is_class)
+/*
+Return the cache holding the tokens of the definition of the entity reflected
+by *rvp (a function, class, namespace, or template), or NULL if they are not
+available.  *is_class is set to TRUE if the tokens are those of the template
+cache of a class (template), which include its base-clause (if any) and the
+braces of its body.
+*/
+{
+  const a_token_cache  *result = NULL;
+  a_symbol_ptr         sym = NULL;
+
+  *is_class = FALSE;
+  strip_template_arg(rvp);
+  extract_reflected_entity(rvp);
+  switch (rvp->entity.kind) {
+    case iek_routine:
+      {
+        a_routine_ptr  rp = (a_routine_ptr)rvp->entity.ptr;
+        result = recorded_definition_tokens_for(make_tagged_ptr(rp));
+        sym = symbol_for(rp);
+        if (result == NULL && sym != NULL &&
+            (sym->kind == (a_symbol_kind)sk_routine ||
+             sym->kind == (a_symbol_kind)sk_member_function) &&
+            sym->variant.routine.instance_ptr != NULL) {
+          /* An instance of a function template or a member function of an
+             instance of a class template: use the template's tokens. */
+          a_symbol_ptr  templ_sym =
+                             sym->variant.routine.instance_ptr->template_sym;
+          if (templ_sym != NULL) {
+            result = template_cache_tokens_for_symbol(templ_sym);
+          }  /* if */
+        }  /* if */
+      }
+      break;
+    case iek_type:
+      {
+        a_type_ptr  tp = skip_typerefs((a_type_ptr)rvp->entity.ptr);
+        if (is_class_struct_union_type(tp)) {
+          result = recorded_definition_tokens_for(make_tagged_ptr(tp));
+          if (result == NULL) {
+            a_template_ptr  templ = tp->variant.class_struct_union.extra_info->
+                                                              assoc_template;
+            if (templ != NULL && symbol_for(templ) != NULL) {
+              result = template_cache_tokens_for_symbol(symbol_for(templ));
+              *is_class = result != NULL;
+            }  /* if */
+          }  /* if */
+        }  /* if */
+      }
+      break;
+    case iek_template:
+      {
+        a_template_ptr  templ = (a_template_ptr)rvp->entity.ptr;
+        *is_class = templ->kind == (a_template_kind)templk_class ||
+                    templ->kind == (a_template_kind)templk_member_class;
+        if (symbol_for(templ) != NULL) {
+          result = template_cache_tokens_for_symbol(symbol_for(templ));
+        }  /* if */
+      }
+      break;
+    case iek_scope:
+      {
+        a_scope_ptr  scope = (a_scope_ptr)rvp->entity.ptr;
+        if (scope != NULL &&
+            (scope->kind == sck_namespace ||
+             scope->kind == sck_namespace_extension) &&
+            scope->variant.assoc_namespace != NULL) {
+          result = recorded_definition_tokens_for(
+                              make_tagged_ptr(scope->variant.assoc_namespace));
+        }  /* if */
+      }
+      break;
+    case iek_namespace:
+      result = recorded_definition_tokens_for(
+                   make_tagged_ptr(skip_namespace_aliases(
+                                    (a_namespace_ptr)rvp->entity.ptr)));
+      break;
+    default:
+      break;
+  }  /* switch */
+  return result;
+}  /* definition_tokens_source */
+
+
+static a_boolean do_constexpr_std_meta_definition_tokens_of(
+                                   an_interpreter_state        *ips,
+                                   ARG_UNUSED a_routine_ptr    callee,
+                                   an_expr_node_ptr            call_node,
+                                   a_byte                      **p_arg_bytes,
+                                   a_byte                      *result_storage,
+                                   a_byte                      *complete_obj)
+/*
+Implement std::meta::definition_tokens_of(<reflection_value>), an EDG
+extension.  The result is a reflection of a token sequence holding the tokens
+of the definition of the reflected entity: the body of a function (including a
+ctor-initializer and the handlers of a function-try-block), the
+member-specification of a class (without the braces), or the declarations of a
+namespace (without the braces; all the definitions of the namespace, in
+order).  The tokens of templates and of members of class templates are always
+available; those of other entities only if they were recorded (with the
+"definition_tokens" flag or the [[edg::retain_tokens]] attribute).  The tokens
+are those after macro expansion.
+
+See do_constexpr_intrinsic_call for the meaning of the parameters.
+*/
+{
+  a_boolean            result = TRUE;
+  a_boolean            is_class;
+  const a_token_cache  *src = definition_tokens_source(
+                                         (a_reflection_value*)p_arg_bytes[0],
+                                         &is_class);
+
+  if (src == NULL) {
+    info_with_pos(ec_definition_tokens_unavailable, &call_node->position, ips);
+    do_constexpr_fail(result);
+  } else {
+    a_token_cache  *cache = new_fe<a_token_cache>(/*reusable=*/TRUE);
+    copy_definition_tokens(src, cache);
+    if (is_class && !cache->is_empty()) {
+      /* The cached tokens of a class template start with its base-clause (if
+         any) and include the braces of the class body: keep only what is
+         between those braces.  (Recorded tokens of a class have no braces.) */
+      size_t  first = 0, last = cache->length();
+      while (first < last && !(*cache)[first]->is(tok_lbrace)) ++first;
+      if (first < last) {
+        /* Find the matching right brace. */
+        size_t  depth = 0, k;
+        for (k = first; k < last; ++k) {
+          if ((*cache)[k]->is(tok_lbrace)) {
+            ++depth;
+          } else if ((*cache)[k]->is(tok_rbrace)) {
+            if (--depth == 0) break;
+          }  /* if */
+        }  /* for */
+        a_token_cache  *body = new_fe<a_token_cache>(/*reusable=*/TRUE);
+        size_t         j;
+        for (j = first + 1; j < k && j < last; ++j) {
+          body->append_token((*cache)[j]);
+        }  /* for */
+        cache = body;
+      }  /* if */
+    }  /* if */
+    terminate_token_cache(cache);
+    set_token_sequence_result(cache, result_storage, complete_obj);
+  }  /* if */
+  return result;
+}  /* do_constexpr_std_meta_definition_tokens_of */
+
+
 static a_boolean do_constexpr_std_meta_queue_injection(
                                         an_interpreter_state  *ips,
                                         a_routine_ptr         callee,
@@ -21445,6 +21965,13 @@ done:
 }  /* do_constexpr_std_meta_define_aggregate */
 
 
+STATIC_THREAD a_text_buffer_ptr
+		string_view_array_buffer;
+			/* A buffer holding the characters of a character
+			   array viewed by a string_view (see
+			   get_string_from_string_view). */
+
+
 static a_boolean get_string_from_string_view(
                                  ARG_UNUSED an_interpreter_state  *ips,
                                              a_constant            *cp,
@@ -21455,7 +21982,10 @@ static a_boolean get_string_from_string_view(
 (whose state is tracked by ips).  Return the string it represents via *p_string
 (a pointer to an array of characters) and *p_len (the length of the view).
 The view must denote elements of a single byte each (as std::string_view and
-std::u8string_view do) that lie within one string literal.
+std::u8string_view do) that lie within one string literal or within the
+character array of a constexpr variable with a constant initializer (such as
+the array that std::define_static_string creates).  In the latter case, the
+characters are copied into a buffer that is valid until the next call.
 */
 {
   a_boolean         result = TRUE, ovflo = FALSE;
@@ -21474,8 +22004,51 @@ std::u8string_view do) that lie within one string literal.
   length_cp = cp->variant.aggregate.first_constant;
   str_cp = cp->variant.aggregate.first_constant->next;
   if (constant_is(str_cp, ck_integer)) swap_at(&length_cp, &str_cp);
-  if (!constant_is(str_cp, ck_address) ||
-      !address_base_is(str_cp, abk_constant)) {
+  if (constant_is(str_cp, ck_address) &&
+      address_base_is(str_cp, abk_variable) &&
+      str_cp->variant.address.variant.variable != NULL &&
+      str_cp->variant.address.variant.variable->init_kind == initk_static &&
+      str_cp->variant.address.variant.variable->initializer.constant !=
+                                                                       NULL) {
+    /* A view of a constexpr character array (e.g., one created by
+       std::define_static_string): use the characters of its initializer. */
+    a_constant  *init_cp = str_cp->variant.address.variant.variable->
+                                                         initializer.constant;
+    offset = str_cp->variant.address.offset;
+    *p_len = (a_targ_size_t)value_of_integer_constant(length_cp, &ovflo);
+    if (constant_is(init_cp, ck_string) &&
+        character_size[init_cp->character_kind] == 1) {
+      str_cp = init_cp;
+    } else if (constant_is(init_cp, ck_aggregate)) {
+      a_constant  *elem;
+      if (string_view_array_buffer == NULL) {
+        string_view_array_buffer = alloc_text_buffer(256);
+      }  /* if */
+      reset_text_buffer(string_view_array_buffer);
+      for (elem = init_cp->variant.aggregate.first_constant; elem != NULL;
+           elem = elem->next) {
+        char  ch;
+        if (!constant_is(elem, ck_integer)) {
+          do_constexpr_fail(result);
+          goto done;
+        }  /* if */
+        ch = (char)value_of_integer_constant(elem, &ovflo);
+        add_to_text_buffer(string_view_array_buffer, &ch, 1);
+      }  /* for */
+      if (ovflo || offset < 0 ||
+          (a_targ_size_t)offset > string_view_array_buffer->size ||
+          *p_len > string_view_array_buffer->size - (a_targ_size_t)offset) {
+        do_constexpr_fail(result);
+      } else {
+        *p_string = string_view_array_buffer->buffer + offset;
+      }  /* if */
+      goto done;
+    } else {
+      do_constexpr_fail(result);
+      goto done;
+    }  /* if */
+  } else if (!constant_is(str_cp, ck_address) ||
+             !address_base_is(str_cp, abk_constant)) {
     do_constexpr_fail(result);
     goto done;
   } else {

@@ -177,6 +177,12 @@ must be defined in interpret.c to implement its evaluation.
   M(std_meta, constant_of, "(r)r") \
   M(std_meta, is_token_sequence, "(r)b") \
   M(std_meta, is_empty_token_sequence, "(r)b") \
+  M(std_meta, tokens_of, "(r)Vr") \
+  M(std_meta, token_kind_of, "(r).") \
+  M(std_meta, token_spelling_of, "(r)Sv") \
+  M(std_meta, token_value_of, "(r)r") \
+  M(std_meta, token_location_of, "(r)L") \
+  M(std_meta, definition_tokens_of, "(r)r") \
   M(std_meta, is_annotation, "(r)b") \
   M(std_meta, is_public, "(r)b") \
   M(std_meta, is_protected, "(r)b") \
