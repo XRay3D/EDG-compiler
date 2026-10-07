@@ -15842,10 +15842,11 @@ Set *parent_rvp to the reflection of the parent that std::meta::parent_of and
 std::meta::has_parent report for the entity reflected by rvp.  That parent is
 the enumeration type of an enumerator, the class of which the entity is a
 member, or else the nearest namespace or file scope that encloses its
-declaration.  Return TRUE when there is such a parent, and FALSE (leaving
+declaration (for a namespace or namespace alias, that is the enclosing
+namespace).  Return TRUE when there is such a parent, and FALSE (leaving
 *parent_rvp untouched) when the entity is of a kind that has none to report,
-such as an unnamed constant or a type that is not a class, an enumeration, or
-a typedef.  rvp is modified in place: It is normalized by applying
+such as an unnamed constant, the global namespace, or a type that is not a
+class, an enumeration, or a typedef.  rvp is modified in place: It is normalized by applying
 strip_template_arg and extract_reflected_entity to it (in that order).
 */
 {
@@ -15893,6 +15894,16 @@ strip_template_arg and extract_reflected_entity to it (in that order).
       break;
     case iek_variable:
       scp = &((a_variable*)rvp->entity.ptr)->source_corresp;
+      break;
+    case iek_namespace:
+      /* A namespace alias. */
+      scp = &((a_namespace*)rvp->entity.ptr)->source_corresp;
+      break;
+    case iek_scope:
+      /* A namespace is reflected as its scope; the correspondence is that of
+         the namespace.  The global namespace (and any other scope) has
+         none, and therefore no parent. */
+      scp = source_corresp_for_reflection(rvp);
       break;
     default:
       break;
