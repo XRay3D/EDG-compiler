@@ -1,5 +1,32 @@
 Version 7.1
 
+10/8/26
+Protected members designated by splice-expressions
+
+A class member designated by a splice-expression is accessible from any
+point ([class.access.base]), and, as clarified by CWG 3109, the additional
+access check for protected members ([class.protected]) does not apply to it.
+The front end skipped the ordinary access check for such a member but still
+did the protected member check, so forming a pointer to a protected member
+with &[:r:], or naming it with obj.[:r:] or p->[:r:], was usually rejected
+outside of the members and friends of the class of the member.  For example,
+with --c++26 --set_flag=reflection:
+
+  #include <experimental/meta>
+  class C {
+  protected:
+    int prot = 1;
+  };
+  constexpr std::meta::info r = std::meta::nonstatic_data_members_of(
+                         ^^C, std::meta::access_context::unchecked())[0];
+  int C::*pm = &[:r:];   // Previously an error
+  int f(C &c) {
+    return c.[:r:];      // Previously an error
+  }
+
+This is now fixed.
+
+
 10/7/26  [GH #176]
 C-generating back end: always_inline attribute and inlined setjmp calls
 
