@@ -5,9 +5,10 @@
 
 /*
 Diagnostics of the token query intrinsics: the argument is not a token
-sequence, the token sequence is empty, the token has no value, and the tokens
-of a definition were not recorded (the "definition_tokens" flag is not set and
-the entity is not declared [[edg::retain_tokens]]).
+sequence, the token sequence is empty, the token has no value, the tokens of a
+definition were not recorded (the "definition_tokens" flag is not set and the
+entity is not declared [[edg::retain_tokens]]), and operator_of is applied to
+a token sequence that is not exactly one operator-function-id.
 */
 
 #include <experimental/meta>
@@ -25,6 +26,10 @@ constexpr auto l1 = token_location_of(^^{});                 // error
 constexpr info d1 = definition_tokens_of(^^not_recorded);    // error
 constexpr info d2 = definition_tokens_of(^^plain);           // error
 constexpr info d3 = definition_tokens_of(^^int);             // error
+// operator_of accepts a token sequence that is just an operator-function-id.
+constexpr operators o1 = operator_of(^^{ + });               // error
+constexpr operators o2 = operator_of(^^{ operator + x });    // error
+constexpr operators o3 = operator_of(^^{ operator int });    // error
 
 // OK: the tokens of templates are always available.
 template <class T> T id(T v) { return v; }

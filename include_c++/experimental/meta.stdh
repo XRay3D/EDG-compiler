@@ -415,11 +415,14 @@ namespace std {
     consteval void __report_tokens(info  tokens);
 
     /* EDG extensions for examining token sequences.  tokens_of decomposes a
-       token sequence into single-token sequences (which can be reassembled
-       with the "\{...}" interpolator); the token_*_of functions describe the
-       first token of a sequence; definition_tokens_of returns the tokens of
-       the definition of a function, class, namespace, or template (see the
-       "definition_tokens" flag and the [[edg::retain_tokens]] attribute). */
+       token sequence into single-token sequences, except that an
+       operator-function-id such as "operator +" is kept whole (the pieces can
+       be reassembled with the "\{...}" interpolator); the token_*_of functions
+       describe the first token of a sequence; operator_of also accepts a
+       sequence that is just an operator-function-id; definition_tokens_of
+       returns the tokens of the definition of a function, class, namespace,
+       or template (see the "definition_tokens" flag and the
+       [[edg::retain_tokens]] attribute). */
     enum class token_kind {
       identifier,
       keyword,
@@ -430,7 +433,8 @@ namespace std {
       string_literal,
       boolean_literal,
       user_defined_literal,
-      interpolated
+      interpolated,
+      operator_function_id
     };
 
     consteval std::vector<info> tokens_of(info  tokens);

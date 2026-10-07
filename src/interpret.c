@@ -18803,8 +18803,91 @@ typedef enum a_meta_token_kind {
   mtk_string_literal,
   mtk_boolean_literal,
   mtk_user_defined_literal,
-  mtk_interpolated
+  mtk_interpolated,
+  mtk_operator_function_id
 } a_meta_token_kind;
+
+
+static int meta_operator_ordinal(an_opname_kind  opname);
+
+
+static size_t next_token_index(const a_token_cache  *cache,
+                               size_t               k)
+/*
+Return the index of the first entry of cache at or after index k that is not a
+pragma entry (cache->length() if there is none).
+*/
+{
+  while (k < cache->length() && (*cache)[k]->is_pragma()) ++k;
+  return k;
+}  /* next_token_index */
+
+
+static size_t operator_function_id_end(const a_token_cache  *cache,
+                                       size_t               k,
+                                       an_opname_kind       *p_opname)
+/*
+If the token of cache at index k begins an operator-function-id ([over.oper])
+whose operator has an enumerator in std::meta::operators -- "operator"
+followed by the operator, where "()", "[]", "new[]", and "delete[]" are made
+of more than one token -- return the index just past its last token, and set
+*p_opname to the kind of the operator.  A token that the front end has already
+coalesced into such a name (an identifier token for an operator name) is a
+name by itself.  Otherwise, return k (and set *p_opname to onk_none).
+Conversion-function-ids and literal-operator-ids are not recognized.  The
+analysis follows get_opname, which forms such names when scanning.
+*/
+{
+  size_t          end = k, len = cache->length();
+  an_opname_kind  opname = (an_opname_kind)onk_none;
+
+  if (k < len) {
+    const a_shared_token  &tok = (*cache)[k];
+    if (tok->is(tok_identifier) && tok->is_identifier() &&
+        tok->get_locator().is_operator_name) {
+      opname = tok->get_locator().variant.opname;
+      end = k + 1;
+    } else if (tok->is(tok_operator)) {
+      size_t  k1 = next_token_index(cache, k + 1);
+      if (k1 < len && !(*cache)[k1]->is(tok_end_of_source)) {
+        opname = opname_kind_for_token[(int)(*cache)[k1]->get_kind()];
+        end = k1 + 1;
+        if (opname == (an_opname_kind)onk_function_call ||
+            opname == (an_opname_kind)onk_subscript) {
+          /* "()" and "[]". */
+          size_t  k2 = next_token_index(cache, k1 + 1);
+          if (k2 < len &&
+              (*cache)[k2]->is((opname == (an_opname_kind)onk_function_call)
+                                 ? tok_rparen : tok_rbracket)) {
+            end = k2 + 1;
+          } else {
+            opname = (an_opname_kind)onk_none;
+          }  /* if */
+        } else if (opname == (an_opname_kind)onk_new ||
+                   opname == (an_opname_kind)onk_delete) {
+          /* "new[]" and "delete[]". */
+          size_t  k2 = next_token_index(cache, k1 + 1);
+          if (k2 < len && (*cache)[k2]->is(tok_lbracket)) {
+            size_t  k3 = next_token_index(cache, k2 + 1);
+            if (k3 < len && (*cache)[k3]->is(tok_rbracket)) {
+              end = k3 + 1;
+              opname = (opname == (an_opname_kind)onk_new)
+                                         ? (an_opname_kind)onk_array_new
+                                         : (an_opname_kind)onk_array_delete;
+            }  /* if */
+          }  /* if */
+        }  /* if */
+      }  /* if */
+    }  /* if */
+    if (meta_operator_ordinal(opname) == 0) {
+      /* Not the name of an operator function (e.g., "operator int"). */
+      opname = (an_opname_kind)onk_none;
+      end = k;
+    }  /* if */
+  }  /* if */
+  *p_opname = opname;
+  return end;
+}  /* operator_function_id_end */
 
 
 static a_token_cache *cache_of_token_sequence(a_reflection_value  *rvp)
@@ -18892,9 +18975,11 @@ static a_boolean do_constexpr_std_meta_tokens_of(
 Implement std::meta::tokens_of(<reflection_value>), an EDG extension.  The
 argument must be a reflection of a token sequence; the result is a
 std::vector<std::meta::info> holding, in order, a reflection of a token
-sequence made of each of its tokens.  Concatenating those sequences (e.g.,
-with the "\{...}" interpolator) produces a sequence equivalent to the
-original one.
+sequence made of each of its tokens, except that the tokens of an
+operator-function-id (e.g., "operator +" or "operator new [ ]") form a single
+element, as they form a single name (see operator_function_id_end).
+Concatenating those sequences (e.g., with the "\{...}" interpolator) produces
+a sequence equivalent to the original one.
 
 See do_constexpr_intrinsic_call for the meaning of the parameters.
 */
@@ -18916,22 +19001,28 @@ See do_constexpr_intrinsic_call for the meaning of the parameters.
     info_with_pos(ec_invalid_reflection_for_intrinsic, &call_node->position,
                   ips);
   } else {
-    for (auto it = cache->begin(); it != cache->end(); ++it) {
-      const a_shared_token  &tok = *it;
-      if (tok->is(tok_end_of_source)) break;
-      if (tok->is_pragma()) continue;
-      /* Each token gets a fresh token sequence number, so that the pieces
-         can be interpolated and injected in any order. */
-      a_token_cache   *one = new_fe<a_token_cache>(/*reusable=*/TRUE);
-      a_cached_token  copy(*tok);
+    size_t  k = next_token_index(cache, 0), len = cache->length();
+    while (k < len && !(*cache)[k]->is(tok_end_of_source)) {
+      /* An operator-function-id (e.g., "operator +" or "operator [ ]") is
+         a single piece, as it is a single name. */
+      an_opname_kind    opname;
+      size_t            end = operator_function_id_end(cache, k, &opname), j;
+      a_token_cache     *one = new_fe<a_token_cache>(/*reusable=*/TRUE);
       a_token_sequence  *tok_seq = alloc_token_sequence();
-      copy.set_seq_number(assign_new_token_sequence_number());
-      one->append_token(move_from(&copy));
+      if (end == k) end = k + 1;
+      for (j = k; j < end; j = next_token_index(cache, j + 1)) {
+        /* Each token gets a fresh token sequence number, so that the pieces
+           can be interpolated and injected in any order. */
+        a_cached_token  copy(*(*cache)[j]);
+        copy.set_seq_number(assign_new_token_sequence_number());
+        one->append_token(move_from(&copy));
+      }  /* for */
+      k = next_token_index(cache, end);
       terminate_token_cache(one);
       tok_seq->token_cache = one;
       push_entity_reflection(&result_reflections, tok_seq, iek_token_sequence,
                              FILE_SCOPE_NUMBER);
-    }  /* for */
+    }  /* while */
     result = make_info_vector(ips, callee, call_node, &result_reflections,
                               result_storage, complete_obj);
   }  /* if */
@@ -18949,7 +19040,9 @@ static a_boolean do_constexpr_std_meta_token_kind_of(
 /*
 Implement std::meta::token_kind_of(<reflection_value>), an EDG extension.  The
 argument must be a reflection of a token sequence; the result is the
-std::meta::token_kind of its first token.
+std::meta::token_kind of its first token, or operator_function_id if the
+sequence begins with an operator-function-id (which std::meta::tokens_of
+returns as a single element).
 
 See do_constexpr_intrinsic_call for the meaning of the parameters.
 */
@@ -18959,44 +19052,52 @@ See do_constexpr_intrinsic_call for the meaning of the parameters.
                      *tok = first_token_of_token_sequence(
                                          (a_reflection_value*)p_arg_bytes[0]);
   a_meta_token_kind  kind = mtk_punctuator;
+  an_opname_kind     opname;
 
   if (tok == NULL) {
     info_with_pos(ec_invalid_reflection_for_intrinsic, &call_node->position,
                   ips);
     do_constexpr_fail(result);
   } else {
-    switch (tok->get_kind()) {
-      case tok_identifier:
-        kind = mtk_identifier;
-        break;
-      case tok_int_constant:
-        kind = mtk_integer_literal;
-        break;
-      case tok_float_constant:
-      case tok_fixed_point_constant:
-        kind = mtk_floating_literal;
-        break;
-      case tok_char_constant:
-        kind = mtk_character_literal;
-        break;
-      case tok_string_literal:
-        kind = mtk_string_literal;
-        break;
-      case tok_ud_literal:
-        kind = mtk_user_defined_literal;
-        break;
-      case tok_gen_constant:
-        kind = mtk_interpolated;
-        break;
-      case tok_true:
-      case tok_false:
-        kind = mtk_boolean_literal;
-        break;
-      default:
-        kind = is_keyword_token(tok->get_kind()) ? mtk_keyword
-                                                 : mtk_punctuator;
-        break;
-    }  /* switch */
+    a_token_cache  *cache = cache_of_token_sequence(
+                                         (a_reflection_value*)p_arg_bytes[0]);
+    size_t         k = next_token_index(cache, 0);
+    if (operator_function_id_end(cache, k, &opname) != k) {
+      kind = mtk_operator_function_id;
+    } else {
+      switch (tok->get_kind()) {
+        case tok_identifier:
+          kind = mtk_identifier;
+          break;
+        case tok_int_constant:
+          kind = mtk_integer_literal;
+          break;
+        case tok_float_constant:
+        case tok_fixed_point_constant:
+          kind = mtk_floating_literal;
+          break;
+        case tok_char_constant:
+          kind = mtk_character_literal;
+          break;
+        case tok_string_literal:
+          kind = mtk_string_literal;
+          break;
+        case tok_ud_literal:
+          kind = mtk_user_defined_literal;
+          break;
+        case tok_gen_constant:
+          kind = mtk_interpolated;
+          break;
+        case tok_true:
+        case tok_false:
+          kind = mtk_boolean_literal;
+          break;
+        default:
+          kind = is_keyword_token(tok->get_kind()) ? mtk_keyword
+                                                   : mtk_punctuator;
+          break;
+      }  /* switch */
+    }  /* if */
     set_integer_value((an_integer_value*)result_storage,
                       (a_host_large_integer)kind);
   }  /* if */
@@ -21278,22 +21379,44 @@ that enumerator, whose ordinal matches the enumerator sequence declared in
 value is written in integer form).  The evaluation fails if the reflection does
 not designate an operator function.
 
+As an EDG extension, the argument may also be a reflection of a token sequence
+made of exactly one operator-function-id (e.g., "operator +" or
+"operator [ ]", one of the elements returned by std::meta::tokens_of); the
+result is then the enumerator whose operator-function-id that is.  A token
+sequence holding just an operator (e.g., "+") is not a name of an operator
+function, so the evaluation fails for it.
+
 See do_constexpr_intrinsic_call for the meaning of the parameters.
 */
 {
   a_boolean           result = TRUE;
   a_reflection_value  *rvp = (a_reflection_value*)p_arg_bytes[0];
+  a_reflection_value  stripped_rv = *rvp;
+  a_token_cache       *cache = cache_of_token_sequence(&stripped_rv);
   a_routine           *rp = NULL;
   int                 ordinal = 0;
 
-  extract_reflected_entity(rvp);
-  if (rvp->entity.kind == iek_routine) {
-    rp = (a_routine*)rvp->entity.ptr;
+  if (cache != NULL) {
+    an_opname_kind  opname;
+    size_t          k = next_token_index(cache, 0),
+                    end = operator_function_id_end(cache, k, &opname);
+    if (end != k) {
+      end = next_token_index(cache, end);
+      if (end == cache->length() || (*cache)[end]->is(tok_end_of_source)) {
+        /* The sequence is just the operator-function-id. */
+        ordinal = meta_operator_ordinal(opname);
+      }  /* if */
+    }  /* if */
   } else {
-    rp = template_prototype_routine(rvp);
-  }  /* if */
-  if (rp != NULL && special_kind_is(rp, sfk_operator)) {
-    ordinal = meta_operator_ordinal(rp->variant.opname_kind);
+    extract_reflected_entity(rvp);
+    if (rvp->entity.kind == iek_routine) {
+      rp = (a_routine*)rvp->entity.ptr;
+    } else {
+      rp = template_prototype_routine(rvp);
+    }  /* if */
+    if (rp != NULL && special_kind_is(rp, sfk_operator)) {
+      ordinal = meta_operator_ordinal(rp->variant.opname_kind);
+    }  /* if */
   }  /* if */
   if (ordinal == 0) {
     info_with_pos(ec_invalid_reflection_for_intrinsic, &call_node->position,

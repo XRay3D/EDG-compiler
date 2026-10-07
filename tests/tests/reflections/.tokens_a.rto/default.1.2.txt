@@ -1,26 +1,54 @@
 ./a.out
-keyword 'int' line 68
-identifier 'x' line 68
-punctuator '=' line 68
-integer '0x10' line 68 value=16
-punctuator '+' line 68
-character ''a'' line 68 value='a'
-punctuator ';' line 68
-keyword 'if' line 69
-punctuator '(' line 69
+keyword 'int' line 69
 identifier 'x' line 69
-punctuator '>' line 69
-integer '3' line 69 value=3
-punctuator ')' line 69
-identifier 'f' line 69
-punctuator '(' line 69
-string '"s"' line 69 value="s"
-punctuator ',' line 69
-floating '(2.5)' line 69 value=(2.5)
-punctuator ',' line 69
-boolean 'true' line 69 value=true
-punctuator ')' line 69
+punctuator '=' line 69
+integer '0x10' line 69 value=16
+punctuator '+' line 69
+character ''a'' line 69 value='a'
 punctuator ';' line 69
+keyword 'if' line 70
+punctuator '(' line 70
+identifier 'x' line 70
+punctuator '>' line 70
+integer '3' line 70 value=3
+punctuator ')' line 70
+identifier 'f' line 70
+punctuator '(' line 70
+string '"s"' line 70 value="s"
+punctuator ',' line 70
+floating '(2.5)' line 70 value=(2.5)
+punctuator ',' line 70
+boolean 'true' line 70 value=true
+punctuator ')' line 70
+punctuator ';' line 70
 count=22
 rebuilt: int y = 0x10 + 'a'; if ( y > 3 ) f ( "s", (2.5), true );
 answer()=42
+identifier 'a'
+punctuator '.'
+operator-function-id 'operator +' operator_of=+
+punctuator '('
+identifier 'b'
+punctuator ')'
+punctuator ';'
+identifier 'v'
+punctuator '.'
+operator-function-id 'operator [ ]' operator_of=[]
+punctuator '('
+integer '1'
+punctuator ')'
+punctuator ';'
+operator-function-id 'operator new [ ]' operator_of=new[]
+punctuator '('
+integer '8'
+punctuator ')'
+punctuator ';'
+identifier 'c'
+punctuator '+='
+identifier 'd'
+punctuator ';'
+operator-function-id 'operator |' operator_of=|
+punctuator ';'
+keyword 'operator'
+keyword 'int'
+punctuator ';'

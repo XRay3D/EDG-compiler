@@ -65,13 +65,18 @@ that token.  Each token gets a fresh token sequence number, so the pieces can
 be interpolated, repeated, reordered, and injected freely.  An empty sequence
 yields an empty vector.
 
+The one exception is an *operator-function-id*, which is a single name made of
+several tokens.  It is returned as one element, as described in
+[Operator names](#operator-names).
+
 ### `token_kind_of`
 
 ```cpp
 token_kind token_kind_of(info token);
 ```
 
-Returns the kind of the first token of `token`:
+Returns the kind of the first element of `token`, in the sense of
+`tokens_of`:
 
 | `token_kind` | Tokens |
 | --- | --- |
@@ -85,6 +90,7 @@ Returns the kind of the first token of `token`:
 | `boolean_literal` | `true` and `false` |
 | `user_defined_literal` | User-defined literals |
 | `interpolated` | A value spliced in with `\(...)` or a similar interpolator |
+| `operator_function_id` | An *operator-function-id*, such as `operator +` |
 
 ### `token_spelling_of`
 
@@ -128,6 +134,50 @@ Returns the source position of the first token: file, line, and column.  For
 tokens obtained from `definition_tokens_of`, this is their position in the
 original definition.  That makes it useful for log messages such as
 `"line 12: while (x > 3)"`.
+
+### Operator names
+
+An *operator-function-id* is `operator` followed by an overloadable operator,
+for example `operator +`, `operator [ ]`, `operator ( )`, `operator new [ ]`,
+or `operator co_await`.  `tokens_of` returns it as one element of kind
+`token_kind::operator_function_id`, because it is one name.  The front end
+treats it the same way when it parses a declaration.
+
+`operator_of` accepts such an element and returns the enumerator of
+`std::meta::operators` whose *operator-function-id* it is.  This mirrors
+P2996R13, where `operator_of` is defined through the *operator-function-id*
+of an operator function:
+
+```cpp
+static_assert(operator_of(^^{ operator + }) == op_plus);
+static_assert(operator_of(^^{ operator [ ] }) == op_square_brackets);
+static_assert(operator_of(^^{ operator new [ ] }) == op_array_new);
+static_assert(operator_of(^^{ operator bitor }) == op_pipe); // same token as |
+static_assert(operator_of(^^S::operator+) == op_plus);        // unchanged
+```
+
+The sequence must be exactly one *operator-function-id*.  These are not, so
+`operator_of` is not a constant for them:
+
+- **A bare operator, such as `+`.**  It is a use of an operator, not the name
+  of an operator function.
+- **A conversion-function-id or literal-operator-id.**  `operator int` and
+  `operator ""_km` have no enumerator in `operators`.  They stay separate
+  tokens in `tokens_of`.
+- **Extra tokens**, as in `operator + x`.
+
+To classify a bare operator token `t`, put `operator` in front of it:
+
+```cpp
+consteval bool is_operator_token(info t) {
+  return token_kind_of(^^{ operator \{t} }) ==
+         token_kind::operator_function_id;
+}
+// operator_of(^^{ operator \{t} }) is op_plus_equals if t is "+=".
+```
+
+`is_operator_function` stays `false` for a token sequence, since a token is
+not a function.
 
 ### Standard queries on token sequences
 
@@ -410,6 +460,7 @@ libstdc++ and requires `--set_flag=definition_tokens`, which records
 | The argument is not a token sequence, or it is empty where a token is needed | `invalid reflection for intrinsic metafunction` |
 | `token_value_of` on an identifier, keyword, or punctuator | `invalid reflection for intrinsic metafunction` |
 | `definition_tokens_of` on an entity whose tokens were not recorded, or that has no definition | `the tokens of the definition of this entity are not available ...` |
+| `operator_of` on a token sequence that is not exactly one *operator-function-id* | `invalid reflection for intrinsic metafunction` |
 
 See `tests/tests/reflections/tokens_e.sft.cpp`.
 
@@ -435,7 +486,7 @@ See `tests/tests/reflections/tokens_e.sft.cpp`.
 
 | Test | Covers |
 | --- | --- |
-| `reflections/tokens_a.sft.cpp` | Iteration, kinds, spellings, values, locations; reassembly with interpolation and `list_builder`; editing and injecting |
+| `reflections/tokens_a.sft.cpp` | Iteration, kinds, spellings, values, locations; reassembly with interpolation and `list_builder`; editing and injecting; operator names and `operator_of` |
 | `reflections/tokens_b.sft.cpp` | `definition_tokens_of` for functions, classes, namespaces, and templates.  Case 1 uses the flag; case 2 uses only the attribute |
 | `reflections/tokens_c.sft.cpp` | Logged copies of a free function and of a virtual member function |
 | `reflections/tokens_d.sft.cpp` | `checked_vector` built from `std::vector` member tokens |

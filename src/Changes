@@ -13,7 +13,8 @@ With --set_flag=injection, the following EDG extensions are now declared in
                         // identifier, keyword, punctuator, integer_literal,
                         // floating_literal, character_literal,
                         // string_literal, boolean_literal,
-                        // user_defined_literal, or interpolated.
+                        // user_defined_literal, interpolated, or
+                        // operator_function_id.
   std::string_view token_spelling_of(info seq);
                         // The text of the tokens.
   info token_value_of(info tok);
@@ -46,6 +47,17 @@ new attribute [[edg::retain_tokens]]:
   [[edg::retain_tokens]] int f(int a) { if (a) return 1; return 0; }
   int f_logged(int a) { ... }   // Can be defined by injecting tokens
                                 // computed from definition_tokens_of(^^f).
+
+An operator-function-id (e.g., "operator +", "operator [ ]", or
+"operator new [ ]") is a single element of the result of tokens_of, since it
+is a single name; its kind is operator_function_id.  std::meta::operator_of
+also accepts a token sequence that is exactly one operator-function-id and
+returns the enumerator whose operator-function-id it is (a bare operator such
+as "+" is not a name, so operator_of is not a constant for it):
+
+  static_assert(operator_of(^^{ operator [ ] }) == op_square_brackets);
+  static_assert(operator_of(^^{ operator \{t} }) == op_plus_equals);
+                                        // If t is the token "+=".
 
 The standard queries std::meta::display_string_of and
 std::meta::source_location_of also accept a token sequence; they give the text

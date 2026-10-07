@@ -31,6 +31,7 @@ consteval const char *kind_name(token_kind k) {
     case token_kind::boolean_literal: return "boolean";
     case token_kind::user_defined_literal: return "udl";
     case token_kind::interpolated: return "interpolated";
+    case token_kind::operator_function_id: return "operator-function-id";
   }
   return "?";
 }
@@ -116,6 +117,50 @@ consteval bool standard_queries_agree(info s) {
 }
 static_assert(standard_queries_agree(seq));
 
+// An operator-function-id is one element of tokens_of (it is one name), and
+// operator_of gives its std::meta::operators enumerator, as it does for the
+// operator function that the name designates.
+constexpr info ops = ^^{ a.operator+(b); v.operator[](1);
+  operator new[](8); c += d; operator bitor; operator int; };
+
+consteval std::string describe_operators(info s) {
+  std::string out;
+  for (info t : tokens_of(s)) {
+    out += kind_name(token_kind_of(t));
+    out += " '";
+    out += token_spelling_of(t);
+    out += "'";
+    if (token_kind_of(t) == token_kind::operator_function_id) {
+      out += " operator_of=";
+      out += symbol_of(operator_of(t));
+    }
+    out += "\n";
+  }
+  return out;
+}
+
+static_assert(token_spelling_of(rebuild(ops)) == token_spelling_of(ops));
+static_assert(operator_of(^^{ operator + }) == op_plus);
+static_assert(operator_of(^^{ operator ( ) }) == op_parentheses);
+static_assert(operator_of(^^{ operator delete [ ] }) == op_array_delete);
+static_assert(operator_of(^^{ operator co_await }) == op_co_await);
+static_assert(tokens_of(^^{ operator new [ ] x }).size() == 2);
+static_assert(token_kind_of(^^{ operator int }) == token_kind::keyword);
+
+// A bare operator token is not a name, but "operator" can be put in front of
+// it to classify it.
+consteval bool is_operator_token(info t) {
+  return token_kind_of(^^{ operator \{t} }) ==
+         token_kind::operator_function_id;
+}
+consteval operators operator_of_token(info t) {
+  return operator_of(^^{ operator \{t} });
+}
+static_assert(is_operator_token(tokens_of(^^{ c += d })[1]));
+static_assert(operator_of_token(tokens_of(^^{ c += d })[1]) == op_plus_equals);
+static_assert(!is_operator_token(tokens_of(^^{ c += d })[0]));
+static_assert(!is_operator_token(tokens_of(^^{ a :: b })[1]));
+
 // A function injected from reassembled (and edited) tokens.
 consteval {
   queue_injection(rename_x(^^{ int answer() { int x = 6; return x * 7; } }));
@@ -128,4 +173,5 @@ int main() {
   std::printf("rebuilt: %s\n", define_static_string(token_spelling_of(
                                  rename_x(seq))));
   std::printf("answer()=%d\n", answer());
+  std::fputs(define_static_string(describe_operators(ops)), stdout);
 }
