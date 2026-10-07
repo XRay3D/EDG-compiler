@@ -15743,7 +15743,10 @@ static a_boolean do_constexpr_std_meta_type_of(
                                         a_byte                *result_storage,
                                         a_byte                *complete_obj)
 /*
-Implement std::meta::type_of(info).
+Implement std::meta::type_of(info).  The type of a nonstatic member function
+is a plain function type ([dcl.fct]): the class of the implicit object
+parameter is not part of it, but its cv-qualifiers and ref-qualifier are
+(e.g., "void() const" for "void f() const").
 
 See do_constexpr_intrinsic_call for the meaning of the parameters.
 */
@@ -15788,6 +15791,15 @@ See do_constexpr_intrinsic_call for the meaning of the parameters.
     default:
       break;
   }  /* switch */
+  if (tp != NULL && tp->kind == tk_routine &&
+      tp->variant.routine.extra_info->this_class != NULL) {
+    /* Drop the class of a nonstatic member function from its type.  The new
+       type must outlive the evaluation. */
+    a_memory_region_number  region_to_switch_back_to;
+    switch_to_file_scope_region(&region_to_switch_back_to);
+    tp = routine_type_without_this_class(tp, /*copy_default_args=*/FALSE);
+    switch_back_to_original_region(region_to_switch_back_to);
+  }  /* if */
   if (tp == NULL) {
     info_with_pos(ec_invalid_reflection_for_intrinsic,
                   &call_node->position, ips);

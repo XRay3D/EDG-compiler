@@ -1,6 +1,28 @@
 Version 7.1
 
 10/8/26
+std::meta::type_of for nonstatic member functions
+
+For a reflection of a nonstatic member function, std::meta::type_of returned
+a type that still carried the class of the function, so it did not compare
+equal to the reflection of the corresponding function type, and the spliced
+type did not match a partial specialization for function types.  The type of
+a nonstatic member function is a plain function type ([dcl.fct]), including
+its cv-qualifiers and ref-qualifier; type_of now returns that type.  For
+example:
+
+  #include <experimental/meta>
+  struct M {
+    int f(int, double);
+    void g() const noexcept;
+  };
+  static_assert(type_of(^^M::f) == ^^int(int, double));
+                                        // Previously failed.
+  static_assert(type_of(^^M::g) == ^^void() const noexcept);
+                                        // Previously failed.
+
+
+10/8/26
 std::meta::parent_of for namespaces
 
 std::meta::parent_of and std::meta::has_parent did not accept a reflection
