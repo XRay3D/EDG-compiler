@@ -16784,6 +16784,70 @@ not the scope).
 }  /* collect_scoped_reflections */
 
 
+static int compare_member_declaration_order(a_reflection_value  rv1,
+                                            a_reflection_value  rv2)
+/*
+Compare the reflections rv1 and rv2 of two members of a class or namespace by
+the order in which the members are declared.  Return a negative value if the
+member reflected by rv1 comes first, a positive value if that reflected by
+rv2 does, and 0 if their positions are the same.  Implicitly-declared members
+(compiler-generated functions, whose positions are those of their classes)
+come after all the others.
+*/
+{
+  int                      result;
+  a_boolean                is_implicit1, is_implicit2;
+  a_source_correspondence  *scp1, *scp2;
+
+  is_implicit1 = (rv1.entity.kind == iek_routine &&
+                  ((a_routine*)rv1.entity.ptr)->compiler_generated);
+  is_implicit2 = (rv2.entity.kind == iek_routine &&
+                  ((a_routine*)rv2.entity.ptr)->compiler_generated);
+  if (is_implicit1 != is_implicit2) {
+    result = is_implicit1 ? 1 : -1;
+  } else {
+    scp1 = source_corresp_for_reflection(&rv1);
+    scp2 = source_corresp_for_reflection(&rv2);
+    result = compare_source_positions(
+                    scp1 != NULL ? &scp1->decl_position : &null_source_position,
+                    scp2 != NULL ? &scp2->decl_position : &null_source_position);
+  }  /* if */
+  return result;
+}  /* compare_member_declaration_order */
+
+
+static void sort_reflections_in_declaration_order(
+                                  Dyn_array<a_reflection_value>  *reflections)
+/*
+Sort the reflections of the members of a class or namespace in *reflections
+into the order in which the members are declared, as std::meta::members_of
+requires ([meta.reflection.member.queries]); see
+compare_member_declaration_order.  Members with the same position, e.g.,
+those of a class defined by std::meta::define_aggregate (which have no
+position at all), keep their relative order.
+*/
+{
+  size_t                         n = reflections->length(), i;
+  Dyn_array<size_t>              order(n);
+  Dyn_array<a_reflection_value>  sorted(n);
+
+  for (i = 0; i < n; ++i) {
+    order.push_back(i);
+  }  /* for */
+  sort(&order, [reflections](size_t  i1, size_t  i2) {
+    int  cmp = compare_member_declaration_order((*reflections)[i1],
+                                                (*reflections)[i2]);
+    return cmp != 0 ? cmp < 0 : i1 < i2;
+  });
+  for (i = 0; i < n; ++i) {
+    sorted.push_back((*reflections)[order[i]]);
+  }  /* for */
+  for (i = 0; i < n; ++i) {
+    (*reflections)[i] = sorted[i];
+  }  /* for */
+}  /* sort_reflections_in_declaration_order */
+
+
 static a_constant_ptr info_array_element_pointer(
                                   an_interpreter_state  *ips,
                                   a_variable_ptr        vp,
@@ -17184,6 +17248,8 @@ See do_constexpr_intrinsic_call for the meaning of the parameters.
                   ips);
     goto done;
   }  /* if */
+  /* The members were collected by kind; put them in declaration order. */
+  sort_reflections_in_declaration_order(&all_reflections);
   /* Keep only members that are accessible from the given access_context. */
   keep_accessible_reflections(&all_reflections, &scope_rv, &dc_rv);
   result = make_info_vector(ips, callee, call_node, &all_reflections,

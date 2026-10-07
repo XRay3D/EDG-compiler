@@ -1,6 +1,29 @@
 Version 7.1
 
 10/8/26
+std::meta::members_of: declaration order
+
+std::meta::members_of returned the members of a class grouped by kind: the
+nonstatic data members first, then the member functions, the member types
+and type aliases, the static data members, and the member templates.  The
+members of a namespace were grouped by kind in the same way.  As specified in
+P2996R13 ([meta.reflection.member.queries]), the members of a class are now
+returned in the order in which they are declared, with the
+implicitly-declared special members after all the others.  The members of a
+namespace are now also returned in declaration order.  For example:
+
+  #include <experimental/meta>
+  struct S {
+    int a;
+    void f();
+    int b;
+  };
+  // Previously a, b, f; now a, f, b (then the implicit members).
+  constexpr auto members = std::define_static_array(
+          std::meta::members_of(^^S, std::meta::access_context::unchecked()));
+
+
+10/8/26
 Protected members designated by splice-expressions
 
 A class member designated by a splice-expression is accessible from any
