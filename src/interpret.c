@@ -11091,14 +11091,19 @@ member and the object are marked initialized as subobjects of complete_obj
 the function-name field is set as for __builtin_source_location (the enclosing
 function's __func__ string); otherwise it is set to the empty string, which is
 what source_location_of uses since an entity's function field is
-implementation-defined.  On any construction failure *p_result is set to FALSE
-(any needed diagnostic having been issued).  Return TRUE if the source-location
-type was valid (so the builtin/intrinsic was handled), FALSE if it was an error
-type (which has already been diagnosed).
+implementation-defined.  If use_pos is NULL, the result is a value-initialized
+std::source_location (whose pointer member is null, so that all its queries
+return zero or the empty string); that is only possible for a class result.
+On any construction failure *p_result is set to FALSE (any needed diagnostic
+having been issued).  Return TRUE if the source-location type was valid (so
+the builtin/intrinsic was handled), FALSE if it was an error type (which has
+already been diagnosed).
 */
 {
   a_boolean                       handled = TRUE;
   a_gnu_source_location_type_info interp_inf;
+
+  check_assertion(use_pos != NULL || result_class_type != NULL);
 
   /* Load the type information; if the type is invalid, silently fail (this has
      already been diagnosed). */
@@ -11108,11 +11113,13 @@ type (which has already been diagnosed).
     do_constexpr_fail(*p_result);
     handled = FALSE;
   } else {
-    a_byte  *obj_storage;
-    /* Allocate the source location __impl object. */
-    alloc_storage_promotable_object(ips, interp_inf.impl_type, &obj_storage,
-                                    p_result);
-    if (*p_result) {
+    a_byte  *obj_storage = NULL;
+    if (use_pos != NULL) {
+      /* Allocate the source location __impl object. */
+      alloc_storage_promotable_object(ips, interp_inf.impl_type, &obj_storage,
+                                      p_result);
+    }  /* if */
+    if (*p_result && obj_storage != NULL) {
       /* Populate the source location __impl object.  The fields (and their
          associated types) are guaranteed to have been validated when the
          source-location type was first used. */
@@ -11153,14 +11160,16 @@ type (which has already been diagnosed).
       do_constexpr_write_source_column(ips, use_pos, column_fp->type,
                                        column_f_bytes, p_result);
       mark_subobject_initialized(column_f_bytes, obj_storage);
-
+    }  /* if */
+    if (*p_result) {
       if (result_class_type == NULL) {
         /* Scalar (pointer) result: result_storage is the __impl pointer. */
         clear_address(result_storage, obj_storage);
         mark_complete_object_initialized(result_storage);
       } else {
-        /* Class result: store the __impl address in the source_location
-           object's single pointer member and mark the member and the object
+        /* Class result: store the __impl address (null for a
+           value-initialized source_location) in the source_location object's
+           single pointer member and mark the member and the object
            initialized as subobjects of complete_obj, mirroring
            make_reflective_string_view. */
         a_field_ptr  slfp = next_alloc_field(fields_of(result_class_type));
@@ -16696,19 +16705,22 @@ See do_constexpr_intrinsic_call for the meaning of the parameters.
 
 
 static a_boolean do_constexpr_std_meta_source_location_of(
-                                        an_interpreter_state  *ips,
-                                        a_routine_ptr         callee,
-                                        an_expr_node_ptr      call_node,
-                                        a_byte                **p_arg_bytes,
-                                        a_byte                *result_storage,
-                                        a_byte                *complete_obj)
+                                   an_interpreter_state        *ips,
+                                   a_routine_ptr               callee,
+                                   ARG_UNUSED an_expr_node_ptr call_node,
+                                   a_byte                      **p_arg_bytes,
+                                   a_byte                      *result_storage,
+                                   a_byte                      *complete_obj)
 /*
 Implement std::meta::source_location_of(<reflection_value>).  It returns a
 std::source_location describing the declaration of the reflected entity.  The
 file/line/column come from the entity's declaration position; the function-name
-field is left empty (it is implementation-defined for an entity).  The call
-fails to be a constant expression for a reflection that has no associated
-declaration position.
+field is left empty (it is implementation-defined for an entity).  As specified
+in [meta.reflection.names], the call is always a constant expression: a
+reflection of a value, of a type other than a class or enumeration type (that
+is not a type alias), of the global namespace, or of a data member description
+yields a value-initialized std::source_location, as does any other reflection
+with no associated declaration position.
 
 See do_constexpr_intrinsic_call for the meaning of the parameters.
 */
@@ -16717,26 +16729,48 @@ See do_constexpr_intrinsic_call for the meaning of the parameters.
   a_reflection_value  *rvp = (a_reflection_value*)p_arg_bytes[0];
   a_type_ptr          rtp = skip_typerefs(callee->type), sl_type;
   a_source_correspondence_ptr
-                      scp;
+                      scp = NULL;
   a_source_position   *use_pos = NULL;
 
   strip_template_arg(rvp);
-  scp = source_corresp_for_reflection(rvp);
+  switch (rvp->entity.kind) {
+    case iek_constant:
+      /* A value has no source location; a named constant (an enumerator) is
+         an entity, which does. */
+      scp = source_corresp_for_reflection(rvp);
+      if (scp != NULL && scp->name == NULL) scp = NULL;
+      break;
+    case iek_type:
+      { a_type_ptr  tp = (a_type_ptr)rvp->entity.ptr;
+        if (type_is_typedef(tp)) {
+          /* A type alias. */
+          scp = source_corresp_for_reflection(rvp);
+        } else {
+          tp = skip_typerefs(tp);
+          if (is_class_struct_union_type(tp) || is_enum_type(tp)) {
+            scp = &tp->source_corresp;
+          }  /* if */
+        }  /* if */
+      }
+      break;
+    case iek_none:
+    case iek_data_member_spec:
+      /* No source location. */
+      break;
+    default:
+      /* The global namespace has no source correspondence. */
+      scp = source_corresp_for_reflection(rvp);
+      break;
+  }  /* switch */
   if (scp != NULL && scp->decl_position.seq != 0) {
     use_pos = &scp->decl_position;
   }  /* if */
-  if (use_pos == NULL) {
-    do_constexpr_fail(result);
-    info_with_pos(ec_invalid_reflection_for_intrinsic, &call_node->position,
-                  ips);
-  } else {
-    check_assertion(type_is(rtp, tk_routine));
-    sl_type = skip_typerefs(rtp->variant.routine.return_type);
-    (void)build_source_location_value(ips, use_pos,
-                                      /*use_current_function=*/FALSE,
-                                      sl_type, result_storage, complete_obj,
-                                      &result);
-  }  /* if */
+  check_assertion(type_is(rtp, tk_routine));
+  sl_type = skip_typerefs(rtp->variant.routine.return_type);
+  (void)build_source_location_value(ips, use_pos,
+                                    /*use_current_function=*/FALSE,
+                                    sl_type, result_storage, complete_obj,
+                                    &result);
   return result;
 }  /* do_constexpr_std_meta_source_location_of */
 
