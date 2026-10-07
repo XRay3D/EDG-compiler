@@ -16784,6 +16784,164 @@ not the scope).
 }  /* collect_scoped_reflections */
 
 
+typedef struct a_member_order_key {
+  /* The sort key of a member in sort_reflections_in_declaration_order. */
+  a_boolean	is_implicit;
+			/* TRUE for an implicitly-declared member, i.e., a
+			   compiler-generated function. */
+  a_decl_sequence_number
+		seq;
+			/* The declaration sequence number of the symbol of
+			   the member, or, for a member that has none, that
+			   of the member after which it is placed. */
+  a_boolean	follows;
+			/* TRUE if the member has no sequence number of its
+			   own and seq is that of its predecessor. */
+} a_member_order_key;
+
+namespace detail {
+
+template<>
+struct Is_trivially_copyable_edg_impl<a_member_order_key> :
+                                                Integral_constant<bool, true> {
+};  /* Is_trivially_copyable_edg_impl */
+
+template<>
+struct Is_trivially_destructible_edg_impl<a_member_order_key> :
+                                                Integral_constant<bool, true> {
+};  /* Is_trivially_destructible_edg_impl */
+
+}  /* namespace detail */
+
+
+static a_decl_sequence_number decl_sequence_for_reflection(
+                                                 a_reflection_value  *rvp)
+/*
+Return the declaration sequence number (see a_symbol::decl_seq) of the symbol
+of the entity reflected by rvp, or NO_DECL_SEQUENCE_NUMBER if the entity has
+no symbol or its symbol has no sequence number.  The latter is the case for
+compiler-generated special member functions and for unnamed bit-fields, which
+all share one symbol.
+*/
+{
+  a_decl_sequence_number   seq = NO_DECL_SEQUENCE_NUMBER;
+  a_source_correspondence  *scp = source_corresp_for_reflection(rvp);
+
+  if (scp != NULL && scp->assoc_info != NULL) {
+    seq = ((a_symbol_ptr)scp->assoc_info)->decl_seq;
+  }  /* if */
+  return seq;
+}  /* decl_sequence_for_reflection */
+
+
+static int compare_member_order_keys(const a_member_order_key  *k1,
+                                     const a_member_order_key  *k2)
+/*
+Compare two member sort keys (see sort_reflections_in_declaration_order).
+Return a negative value if the member with key k1 comes first, a positive
+value if the member with key k2 does, and 0 if the keys are the same.
+Implicitly-declared members come after all the others; among the rest, the
+members are ordered by their declaration sequence numbers, and a member
+placed after its predecessor follows the predecessor itself.
+*/
+{
+  int  result;
+
+  if (k1->is_implicit != k2->is_implicit) {
+    result = k1->is_implicit ? 1 : -1;
+  } else if (k1->seq != k2->seq) {
+    result = k1->seq < k2->seq ? -1 : 1;
+  } else if (k1->follows != k2->follows) {
+    result = k1->follows ? 1 : -1;
+  } else {
+    result = 0;
+  }  /* if */
+  return result;
+}  /* compare_member_order_keys */
+
+
+static void sort_reflections_in_declaration_order(
+                                  Dyn_array<a_reflection_value>  *reflections)
+/*
+Sort the reflections of the members of a class or namespace in *reflections
+into the order in which the members are declared, as std::meta::members_of
+requires (N5046 [meta.reflection.member.queries]).  The order is that of the
+declaration sequence numbers of the symbols of the members (a_symbol::decl_seq;
+see decl_sequence_for_reflection).  A sequence number is assigned at the first
+declaration of a member, so, unlike the declaration positions, the numbers are
+not disturbed by macro expansions, and they do not move to the definition of a
+member that is defined outside its class or namespace.  Implicitly-declared
+members (compiler-generated functions) have no sequence number and come after
+all the others.  An unnamed bit-field has no sequence number either; it is
+placed after the member whose declaration position precedes its own most
+closely or, if there are no positions to compare, after the member collected
+before it.  Members whose keys are still the same keep their relative order.
+*/
+{
+  size_t                         n = reflections->length(), i, j;
+  Dyn_array<a_member_order_key>  keys(n);
+  Dyn_array<size_t>              order(n);
+  Dyn_array<a_reflection_value>  sorted(n);
+
+  for (i = 0; i < n; ++i) {
+    a_reflection_value  *rvp = &(*reflections)[i];
+    a_member_order_key  key;
+    key.is_implicit = (rvp->entity.kind == iek_routine &&
+                       ((a_routine*)rvp->entity.ptr)->compiler_generated);
+    key.seq = key.is_implicit ? NO_DECL_SEQUENCE_NUMBER
+                              : decl_sequence_for_reflection(rvp);
+    key.follows = FALSE;
+    keys.push_back(key);
+  }  /* for */
+  /* Give the members without a sequence number (unnamed bit-fields) the
+     number of a predecessor.  Only members whose declaration position is
+     before that of the bit-field are candidates, and the one declared last
+     (with the largest number) is the closest. */
+  for (i = 0; i < n; ++i) {
+    if (!keys[i].is_implicit && keys[i].seq == NO_DECL_SEQUENCE_NUMBER) {
+      a_source_correspondence  *scp;
+      a_boolean                found = FALSE;
+      scp = source_corresp_for_reflection(&(*reflections)[i]);
+      if (scp != NULL && scp->decl_position.seq != 0) {
+        for (j = 0; j < n; ++j) {
+          a_source_correspondence  *scp2;
+          if (keys[j].is_implicit ||
+              keys[j].seq == NO_DECL_SEQUENCE_NUMBER ||
+              keys[j].follows) {
+            continue;
+          }  /* if */
+          scp2 = source_corresp_for_reflection(&(*reflections)[j]);
+          if (scp2 != NULL && scp2->decl_position.seq != 0 &&
+              compare_source_positions(&scp2->decl_position,
+                                       &scp->decl_position) < 0 &&
+              (!found || keys[j].seq > keys[i].seq)) {
+            keys[i].seq = keys[j].seq;
+            found = TRUE;
+          }  /* if */
+        }  /* for */
+      }  /* if */
+      if (!found && i > 0) {
+        keys[i].seq = keys[i-1].seq;
+      }  /* if */
+      keys[i].follows = TRUE;
+    }  /* if */
+  }  /* for */
+  for (i = 0; i < n; ++i) {
+    order.push_back(i);
+  }  /* for */
+  sort(&order, [&keys](size_t  i1, size_t  i2) {
+    int  cmp = compare_member_order_keys(&keys[i1], &keys[i2]);
+    return cmp != 0 ? cmp < 0 : i1 < i2;
+  });
+  for (i = 0; i < n; ++i) {
+    sorted.push_back((*reflections)[order[i]]);
+  }  /* for */
+  for (i = 0; i < n; ++i) {
+    (*reflections)[i] = sorted[i];
+  }  /* for */
+}  /* sort_reflections_in_declaration_order */
+
+
 static a_constant_ptr info_array_element_pointer(
                                   an_interpreter_state  *ips,
                                   a_variable_ptr        vp,
@@ -17184,6 +17342,8 @@ See do_constexpr_intrinsic_call for the meaning of the parameters.
                   ips);
     goto done;
   }  /* if */
+  /* The members were collected by kind; put them in declaration order. */
+  sort_reflections_in_declaration_order(&all_reflections);
   /* Keep only members that are accessible from the given access_context. */
   keep_accessible_reflections(&all_reflections, &scope_rv, &dc_rv);
   result = make_info_vector(ips, callee, call_node, &all_reflections,
