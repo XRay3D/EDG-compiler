@@ -129,6 +129,19 @@ tokens obtained from `definition_tokens_of`, this is their position in the
 original definition.  That makes it useful for log messages such as
 `"line 12: while (x > 3)"`.
 
+### Standard queries on token sequences
+
+Two P2996 queries also accept a token sequence:
+
+- `display_string_of(seq)` and `u8display_string_of(seq)` return the same text
+  as `token_spelling_of(seq)`.
+- `source_location_of(seq)` returns the same position as
+  `token_location_of(seq)`.  An empty sequence has no position, so for it the
+  call is not a constant expression.
+
+P2996R13 leaves both results implementation-defined for reflections it does not
+describe, so this does not change the behavior of any standard program.
+
 ### `definition_tokens_of`
 
 ```cpp

@@ -16623,6 +16623,10 @@ build the interpreter character array only once.
 }  /* meta_display_string */
 
 
+static a_token_cache *cache_of_token_sequence(a_reflection_value  *rvp);
+static char *token_sequence_text(a_token_cache  *cache);
+
+
 static a_boolean meta_display_string_of_impl(
                                         an_interpreter_state  *ips,
                                         a_routine_ptr         callee,
@@ -16637,7 +16641,8 @@ Shared implementation of std::meta::display_string_of and u8display_string_of.
 Render the display form of the reflected entity (see form_reflection) and
 store, at result_storage, a string view of it with elements of type char_type.
 For a valid reflection this always succeeds (there is a rendering for every
-entity kind).
+entity kind).  The display form of a token sequence (an EDG extension) is the
+text of its tokens, as returned by std::meta::token_spelling_of.
 
 See do_constexpr_intrinsic_call for the meaning of the parameters.
 */
@@ -16645,7 +16650,10 @@ See do_constexpr_intrinsic_call for the meaning of the parameters.
   a_boolean           result;
   a_reflection_value  *rvp = (a_reflection_value*)p_arg_bytes[0];
   a_type_ptr          rtp = skip_typerefs(callee->type), tp;
-  char                *str = meta_display_string(*rvp);
+  a_reflection_value  stripped_rv = *rvp;
+  a_token_cache       *cache = cache_of_token_sequence(&stripped_rv);
+  char                *str = cache != NULL ? token_sequence_text(cache)
+                                           : meta_display_string(*rvp);
 
   check_assertion(type_is(rtp, tk_routine));
   tp = skip_typerefs(rtp->variant.routine.return_type);
@@ -16695,6 +16703,10 @@ See do_constexpr_intrinsic_call for the meaning of the parameters.
 }  /* do_constexpr_std_meta_u8display_string_of */
 
 
+static const an_immutable_cached_token *first_token_of_token_sequence(
+                                                     a_reflection_value  *rvp);
+
+
 static a_boolean do_constexpr_std_meta_source_location_of(
                                         an_interpreter_state  *ips,
                                         a_routine_ptr         callee,
@@ -16710,15 +16722,29 @@ field is left empty (it is implementation-defined for an entity).  The call
 fails to be a constant expression for a reflection that has no associated
 declaration position.
 
+For a reflection of a token sequence (an EDG extension), the position of its
+first token is used.
+
 See do_constexpr_intrinsic_call for the meaning of the parameters.
 */
 {
   a_boolean           result = TRUE;
   a_reflection_value  *rvp = (a_reflection_value*)p_arg_bytes[0];
   a_type_ptr          rtp = skip_typerefs(callee->type), sl_type;
+  a_source_position   tok_pos;
   a_source_correspondence_ptr
                       scp;
   a_source_position   *use_pos = NULL;
+
+  if (rvp->entity.kind == iek_token_sequence) {
+    /* A token sequence (an EDG extension) has no source correspondence; the
+       position of its first token is used. */
+    const an_immutable_cached_token  *tok = first_token_of_token_sequence(rvp);
+    if (tok != NULL && tok->get_source_position()->seq != 0) {
+      tok_pos = *tok->get_source_position();
+      use_pos = &tok_pos;
+    }  /* if */
+  }  /* if */
 
   strip_template_arg(rvp);
   scp = source_corresp_for_reflection(rvp);
@@ -18820,6 +18846,22 @@ return its first token (pragma entries are skipped); otherwise, return NULL.
 }  /* first_token_of_token_sequence */
 
 
+static char *token_sequence_text(a_token_cache  *cache)
+/*
+Return the text of the tokens of cache (the token cache of a token sequence,
+terminated by a tok_end_of_source token), separated by single spaces where
+needed.  The text is in storage that lasts as long as the translation unit
+(make_reflective_string_view caches views by the address of the text).
+*/
+{
+  init_token_string(cache->get_first_token()->get_source_position(),
+                    /*keep_spacing=*/FALSE,
+                    /*suppress_identifier_wrapping=*/TRUE);
+  add_token_cache_to_string(cache);
+  return make_copy_of_token_string();
+}  /* token_sequence_text */
+
+
 static void set_token_sequence_result(a_token_cache  *cache,
                                       a_byte         *result_storage,
                                       a_byte         *complete_obj)
@@ -18989,15 +19031,7 @@ See do_constexpr_intrinsic_call for the meaning of the parameters.
                   ips);
   } else {
     a_type_ptr  rtp = skip_typerefs(callee->type), tp;
-    char        *str;
-    init_token_string(cache->get_first_token()->get_source_position(),
-                      /*keep_spacing=*/FALSE,
-                      /*suppress_identifier_wrapping=*/TRUE);
-    add_token_cache_to_string(cache);
-    /* Copy the text into storage that lasts as long as the translation unit
-       (make_reflective_string_view caches views by the address of the
-       text). */
-    str = make_copy_of_token_string();
+    char        *str = token_sequence_text(cache);
     check_assertion(type_is(rtp, tk_routine));
     tp = skip_typerefs(rtp->variant.routine.return_type);
     result = make_reflective_string_view(ips, tp, str,

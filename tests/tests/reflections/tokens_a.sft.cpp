@@ -102,6 +102,20 @@ static_assert(token_spelling_of(rebuild_with_list_builder(seq)) ==
 static_assert(token_spelling_of(rename_x(^^{ x + x * z })) == "y + y * z");
 static_assert(tokens_of(^^{}).empty());
 
+// The standard queries display_string_of and source_location_of also work on
+// token sequences: they give the text and the position of the tokens.
+consteval bool standard_queries_agree(info s) {
+  for (info t : tokens_of(s)) {
+    if (display_string_of(t) != token_spelling_of(t)) return false;
+    if (source_location_of(t).line() != token_location_of(t).line())
+      return false;
+    if (source_location_of(t).column() != token_location_of(t).column())
+      return false;
+  }
+  return display_string_of(s) == token_spelling_of(s);
+}
+static_assert(standard_queries_agree(seq));
+
 // A function injected from reassembled (and edited) tokens.
 consteval {
   queue_injection(rename_x(^^{ int answer() { int x = 6; return x * 7; } }));

@@ -47,6 +47,10 @@ new attribute [[edg::retain_tokens]]:
   int f_logged(int a) { ... }   // Can be defined by injecting tokens
                                 // computed from definition_tokens_of(^^f).
 
+The standard queries std::meta::display_string_of and
+std::meta::source_location_of also accept a token sequence; they give the text
+of its tokens and the position of its first token.
+
 Finally, the operand of the \str interpolator may now be a constexpr
 character array (such as the result of std::define_static_string), not only
 a string literal.
