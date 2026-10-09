@@ -5925,6 +5925,7 @@ the corresponding integer value (zero for a null address).
 static a_boolean evaluate_expr(an_interpreter_state  *ips,
                                an_expr_node_ptr      expr,
                                a_boolean             force_prvalue,
+                               a_boolean             is_full_expression,
                                a_constant_ptr        result_con);
 
 static a_boolean get_string_from_string_view(an_interpreter_state  *ips,
@@ -9072,11 +9073,13 @@ updated with a note indicating which values were compared.
        hand side. */
     ips->delay_final_destructions = TRUE;
     ips->permit_leftover_dyn_alloc = TRUE;
-    success = evaluate_expr(ips, lhs, /*force_prvalue=*/FALSE, lhcp);
+    success = evaluate_expr(ips, lhs, /*force_prvalue=*/FALSE,
+                            /*is_full_expression=*/TRUE, lhcp);
     ips->permit_leftover_dyn_alloc = FALSE;
     ips->delay_final_destructions = FALSE;
     if (success && !ips->input_error &&
-        evaluate_expr(ips, rhs, /*force_prvalue=*/FALSE, rhcp) &&
+        evaluate_expr(ips, rhs, /*force_prvalue=*/FALSE,
+                      /*is_full_expression=*/TRUE, rhcp) &&
         !ips->input_error) {
       int  cmp = cmp_integer_constants(lhcp, rhcp);
       switch (expr->variant.operation.kind) {
@@ -9108,7 +9111,8 @@ updated with a note indicating which values were compared.
     release_local_constant(&rhcp);
   } else {
     a_constant  *cp = local_constant();
-    result = evaluate_expr(ips, expr, /*force_prvalue=*/FALSE, cp);
+    result = evaluate_expr(ips, expr, /*force_prvalue=*/FALSE,
+                           /*is_full_expression=*/TRUE, cp);
     *passed = result && !is_zero_constant(cp);
     release_local_constant(&cp);
   }  /* if */
@@ -11950,7 +11954,8 @@ reason in *ips, if it is neither.
   a_boolean   result = TRUE;
   a_constant  *cp = local_constant(), *str_cp = NULL;
 
-  if (!evaluate_expr(ips, arg, /*force_prvalue=*/TRUE, cp)) {
+  if (!evaluate_expr(ips, arg, /*force_prvalue=*/TRUE,
+                     /*is_full_expression=*/FALSE, cp)) {
     do_constexpr_fail(result);
     goto done;
   }  /* if */
@@ -12023,7 +12028,8 @@ here.
     goto done;
   }  /* if */
   level_cp = local_constant();
-  if (!evaluate_expr(ips, args, /*force_prvalue=*/TRUE, level_cp) ||
+  if (!evaluate_expr(ips, args, /*force_prvalue=*/TRUE,
+                     /*is_full_expression=*/FALSE, level_cp) ||
       !constant_is(level_cp, ck_integer)) {
     do_constexpr_fail(*p_result);
   } else {
@@ -21674,10 +21680,7 @@ the corresponding reflection value at the location denoted by result_cap.
   a_token_cache       *new_cache = NULL;
   Dyn_array<a_constant*>
                       values(10);
-  a_boolean           saved_permit_leftover_dyn_alloc =
-                                               ips->permit_leftover_dyn_alloc;
 
-  ips->permit_leftover_dyn_alloc = TRUE;
   if (!ips->is_constant_evaluated) {
     do_constexpr_fail(result);
     goto done;
@@ -21689,15 +21692,10 @@ the corresponding reflection value at the location denoted by result_cap.
     for (; node != NULL; node = node->next) {
       a_constant   *cp = local_constant();
       values.push_back(cp);
-      if (!evaluate_expr(ips, node, /*force_prvalue=*/TRUE, cp)) {
+      if (!evaluate_expr(ips, node, /*force_prvalue=*/TRUE,
+                         /*is_full_expression=*/FALSE, cp)) {
         do_constexpr_fail(result);
         break;
-      } else {
-        /* Discard the backing expression since it will be associated with a
-           new pseudo-token likely to be injected in a scope where the
-           expression is meaningless (and would produce memory region
-           violations). */
-        cp->expr = NULL;
       }  /* if */
     }  /* for */
     if (result) {
@@ -21775,7 +21773,6 @@ the corresponding reflection value at the location denoted by result_cap.
   }  /* if */
 done:
   for (auto cp: values) release_local_constant(&cp);
-  ips->permit_leftover_dyn_alloc = saved_permit_leftover_dyn_alloc;
   return result;
 }  /* do_constexpr_eval_token_sequence */
 
@@ -33817,11 +33814,19 @@ done:
 static a_boolean evaluate_expr(an_interpreter_state  *ips,
                                an_expr_node_ptr      expr,
                                a_boolean             force_prvalue,
+                               a_boolean             is_full_expression,
                                a_constant_ptr        result_con)
 /*
 Evaluate the given expression for the interpreter state *ips and place the
 result in result_con.  If force_prvalue is TRUE, convert a glvalue expression
-to a prvalue (without changing expr itself).
+to a prvalue (without changing expr itself).  is_full_expression is TRUE if
+expr is the full expression of the interpretation (or otherwise ends one):
+the pending destructions of temporaries are then performed, leftover dynamic
+allocations are diagnosed, and expr is recorded as the backing expression of
+the result.  It is FALSE if expr is a subexpression of a full expression that
+is still being interpreted (e.g., the operand of an interpolator in a token
+sequence): the temporaries it creates are then destroyed at the end of that
+full expression, as usual.
 */
 {
   a_boolean     result = TRUE;
@@ -33905,6 +33910,10 @@ to a prvalue (without changing expr itself).
                                          ips, result_storage, result_storage,
                                          result_type, result_con)) {
         do_constexpr_fail(result);
+      } else if (!is_full_expression) {
+        /* expr is part of a full expression that is still being interpreted:
+           the temporaries it created are destroyed at the end of that full
+           expression, and its dynamic allocations may still be in use. */
       } else if (ips->storage_stack.destructions != NULL &&
                  !ips->delay_final_destructions &&
                  ((!node_is(expr, enk_object_lifetime) &&
@@ -34083,7 +34092,8 @@ indicates the value produced by std::is_constant_evaluated().
     ips.permit_null_pointer_offsets = TRUE;
   }  /* if */
   ips.position = expr->position;
-  result = evaluate_expr(&ips, expr, force_prvalue, result_con);
+  result = evaluate_expr(&ips, expr, force_prvalue,
+                         /*is_full_expression=*/TRUE, result_con);
   *diag_list = ips.diag_list;
   release_interpreter_state(&ips);
 done:

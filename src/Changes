@@ -1,5 +1,26 @@
 Version 7.1
 
+10/9/26
+Temporaries in the operands of interpolators of token sequences
+
+A temporary object created in the operand of an interpolator ("\val(...)",
+"\{...}", and the others) of a token sequence was destroyed as soon as the
+operand had been evaluated, and then again at the end of the full-expression
+containing the token sequence.  If the destructor accessed the object (as
+that of std::vector does), the second destruction made the enclosing
+constant evaluation fail with "access to uninitialized object":
+
+  consteval std::vector<std::meta::info> seqs();
+  consteval std::meta::info f() {
+    return ^^{ \{seqs()[0]} };   // Used to fail; now accepted.
+  }
+
+(The operand of a comparison in a static_assert declaration was exempt,
+because the early destruction is skipped for it.)  Such a temporary is now
+destroyed only at the end of the full-expression, like any other temporary.
+The same applies to the arguments of __builtin_constexpr_diag.
+
+
 10/9/26  [GH #27]
 Clearer diagnostic when auto is deduced from an incomplete type
 
