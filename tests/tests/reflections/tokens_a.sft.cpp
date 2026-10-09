@@ -161,6 +161,31 @@ static_assert(operator_of_token(tokens_of(^^{ c += d })[1]) == op_plus_equals);
 static_assert(!is_operator_token(tokens_of(^^{ c += d })[0]));
 static_assert(!is_operator_token(tokens_of(^^{ a :: b })[1]));
 
+// token_value_of gives a reflection of a value, which can be spliced (a token
+// itself cannot be).  "\val(...)" yields an interpolated token, as does the
+// operand of "\[:...:]"; its value is the reflection interpolated, or the
+// reflected constant for a value of another type.
+constexpr int limit = 42;
+static_assert([:token_value_of(tokens_of(^^{ 0x10 })[0]):] == 16);
+static_assert(token_value_of(tokens_of(^^{ 'a' })[0]) ==
+              reflect_constant('a'));
+constexpr info val_limit = tokens_of(^^{ \val(^^limit) })[0];
+static_assert(token_kind_of(val_limit) == token_kind::interpolated);
+static_assert(token_value_of(val_limit) == ^^limit);
+static_assert([:token_value_of(val_limit):] == 42);
+constexpr info val_42 = tokens_of(^^{ \val(42) })[0];
+static_assert(token_kind_of(val_42) == token_kind::interpolated);
+static_assert(token_value_of(val_42) == reflect_constant(42));
+static_assert(token_kind_of(tokens_of(^^{ \[:^^limit:] })[1]) ==
+              token_kind::interpolated);
+
+// An identifier has no value; the entity it names is found by injecting it.
+consteval {
+  queue_injection(^^{ constexpr info found_limit =
+                        ^^\{tokens_of(^^{ limit })[0]}; });
+}
+static_assert(found_limit == ^^limit);
+
 // A function injected from reassembled (and edited) tokens.
 consteval {
   queue_injection(rename_x(^^{ int answer() { int x = 6; return x * 7; } }));

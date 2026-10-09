@@ -1,13 +1,13 @@
 # Token Metafunctions (EDG Extension)
 
 EDG implements P3294 token sequences (`^^{ ... }`, the interpolators
-`\{...}`, `\(...)`, `\[...]`, `\str(...)`, and `queue_injection`).  The
-metafunctions described here let a consteval function look *inside* a token
-sequence: walk its tokens one by one, ask what each token is, and obtain the
-tokens of a function, class, or namespace that is already defined.  Combined
-with the existing interpolators, this is enough to rewrite code at compile time
-and inject the result.  For example, it can produce a copy of a function with
-logging added to every branch.
+`\{...}`, `\[...]`, `\[:...:]`, `\val(...)`, `\str(...)`, and
+`queue_injection`).  The metafunctions described here let a consteval function
+look *inside* a token sequence: walk its tokens one by one, ask what each token
+is, and obtain the tokens of a function, class, or namespace that is already
+defined.  Combined with the existing interpolators, this is enough to rewrite
+code at compile time and inject the result.  For example, it can produce a
+copy of a function with logging added to every branch.
 
 These are EDG extensions, not part of any WG21 proposal.
 
@@ -94,7 +94,7 @@ Returns the kind of the first element of `token`, in the sense of
 | `string_literal` | String literals |
 | `boolean_literal` | `true` and `false` |
 | `user_defined_literal` | User-defined literals |
-| `interpolated` | A value spliced in with `\(...)` or a similar interpolator |
+| `interpolated` | A value interpolated with `\val(...)`, or the operand of `\[:...:]` |
 | `operator_function_id` | An *operator-function-id*, such as `operator +` |
 
 ### `token_spelling_of`
@@ -125,9 +125,36 @@ result reflects its value as a constant, usable with `extract` or
 - For a user-defined literal, the result is the value passed to the literal
   operator.
 - For an interpolated reflection, the result is that reflection itself.
+- For another interpolated value, the result is a reflection of that
+  constant (as `reflect_constant` gives).
 
 Identifiers, keywords, and punctuators have no value; calling it on them is an
 error.
+
+A token cannot be spliced itself: `[:t:]` is ill-formed, because `t` reflects
+a token sequence, not an entity or a value.  The result of `token_value_of`
+can be spliced:
+
+```cpp
+constexpr info lit = tokens_of(^^{ 0x10 })[0];
+static_assert([:token_value_of(lit):] == 16);
+
+constexpr int limit = 42;
+constexpr info val = tokens_of(^^{ \val(^^limit) })[0];
+static_assert(token_value_of(val) == ^^limit);
+static_assert([:token_value_of(val):] == 42);
+```
+
+To find the entity that an identifier token names, inject the token where
+name lookup should happen:
+
+```cpp
+consteval {
+  queue_injection(^^{ constexpr info found =
+                        ^^\{tokens_of(^^{ limit })[0]}; });
+}
+static_assert(found == ^^limit);
+```
 
 ### `token_location_of`
 
@@ -247,18 +274,73 @@ Restrictions:
   operator is trivial, the front end generates a built-in assignment, but the
   function was selected and is returned.
 
-### Standard queries on token sequences
+### Standard metafunctions on token sequences
 
-Two P2996 queries also accept a token sequence:
+The P2996 metafunctions accept any reflection, so they can all be called on a
+token sequence.  Most of them describe entities, and a token sequence is not
+an entity.  They fall into four groups.
 
-- `display_string_of(seq)` and `u8display_string_of(seq)` return the same text
-  as `token_spelling_of(seq)`.
-- `source_location_of(seq)` returns the same position as
-  `token_location_of(seq)`.  An empty sequence has no position, so for it the
-  call is not a constant expression.
+**Queries that give a result for a token sequence:**
 
-P2996R13 leaves both results implementation-defined for reflections it does not
-describe, so this does not change the behavior of any standard program.
+| Metafunction | Result for a token sequence `seq` |
+| --- | --- |
+| `display_string_of`, `u8display_string_of` | The text of the tokens, the same as `token_spelling_of(seq)`; `""` for an empty sequence |
+| `source_location_of` | The position of the first token, the same as `token_location_of(seq)` |
+| `operator_of` | The operator, if `seq` is exactly one *operator-function-id* (see [Operator names](#operator-names)) |
+| `dealias` | `seq` itself |
+| `is_accessible` | `true` |
+
+The results of `display_string_of` and `source_location_of` are EDG
+behavior: P2996R13 leaves both implementation-defined for reflections it does
+not describe, so no standard program changes behavior.
+
+**EDG queries for token sequences** (declared next to `queue_injection`):
+
+| Metafunction | Result |
+| --- | --- |
+| `is_token_sequence(r)` | Whether `r` reflects a token sequence |
+| `is_empty_token_sequence(r)` | Whether `r` reflects a token sequence with no tokens |
+
+**Predicates that are `false`.**  Every `is_...` and `has_...` predicate on
+entities is a constant `false` for a token sequence.  That includes
+`is_type`, `is_value`, `is_object`, `is_variable`, `is_function`,
+`is_namespace`, `is_template`, `is_base`, `is_class_member`,
+`is_namespace_member`, `is_enumerator`, `is_annotation`,
+`is_complete_type`, `is_user_declared`, `has_identifier`, `has_parent`,
+`has_template_arguments`, `has_linkage`, and the storage-duration and
+access predicates (`is_public`, ...).  Note that `has_identifier` is
+`false` even for a sequence holding a single identifier token: use
+`token_kind_of` and `token_spelling_of` to examine it.
+
+**Queries that are not constant expressions.**  A call on a token sequence
+fails to be a constant expression for:
+
+- `identifier_of` and `u8identifier_of` (also for an identifier token);
+- `type_of`, `parent_of`, `object_of`, `constant_of`, `variable_of`,
+  `template_of`, and `template_arguments_of`;
+- `size_of`, `alignment_of`, `bit_size_of`, and `offset_of`;
+- `members_of`, `bases_of`, `nonstatic_data_members_of`,
+  `static_data_members_of`, `subobjects_of`, `enumerators_of`,
+  `parameters_of`, `return_type_of`, `annotations_of`, and
+  `has_inaccessible_nonstatic_data_members`;
+- `extract`;
+- `source_location_of` for an empty sequence (it has no position), and
+  `operator_of` for anything but a single *operator-function-id*.
+
+**Comparison.**  `==` on reflections of token sequences compares identity,
+not contents.  Every evaluation of a token-sequence expression, and every
+call to `tokens_of`, creates new sequences:
+
+```cpp
+constexpr info seq = ^^{ a + 1 };
+static_assert(seq == seq);
+static_assert(seq != ^^{ a + 1 });                     // Different sequences
+static_assert(tokens_of(seq)[0] != tokens_of(seq)[0]);  // Different calls
+static_assert(token_spelling_of(seq) == token_spelling_of(^^{ a + 1 }));
+```
+
+`reflect_constant(seq)` is a reflection of a value of type `std::meta::info`,
+not the sequence itself.
 
 ### `definition_tokens_of`
 
@@ -354,16 +436,76 @@ A token sequence literal cannot contain an unbalanced `{` or `}`.  When a
 rewriter needs a lone brace, it can take one from the input.  For example,
 `tokens_of(body).front()` is the `{` of a function body.
 
-## `\str` with computed strings
+## Interpolators
 
-The operand of `\str(...)` may now be a constexpr character array, such as the
-result of `std::define_static_string`, in addition to a string literal.  That
-lets a rewriter emit messages it computed:
+An interpolator in a token sequence is replaced by tokens when the
+token-sequence expression is evaluated.  Its operand is evaluated at that
+point, as a subexpression of the full-expression that contains the token
+sequence.  The value is copied into the sequence, so later changes to the
+operand's variables do not affect it.
+
+| Interpolator | Operand | Contributes | `tokens_of` sees |
+| --- | --- | --- | --- |
+| `\{s}` | A reflection of a token sequence | The tokens of `s` | Each token with its own kind |
+| `\val(e)` | A constant expression | A pseudo-token holding the value of `e` | One `interpolated` token |
+| `\[: r :]` | A reflection | `[:`, a pseudo-token for `r`, `:]` | A punctuator, an `interpolated` token, a punctuator |
+| `\[a, b, ...]` | `std::string_view`, then views or integers | An identifier made of the pieces | One `identifier` token |
+| `\str(v)` | `std::string_view` | A string literal with the characters of `v` | One `string_literal` token |
+
+```cpp
+constexpr int x = 42;
+constexpr std::string_view name = "count";
+
+static_assert(token_spelling_of(^^{ \val(x) }) == "42");
+static_assert(token_value_of(^^{ \val(x) }) == reflect_constant(42));
+static_assert(token_value_of(^^{ \val(^^x) }) == ^^x);
+static_assert(token_spelling_of(^^{ \[: ^^x :] }) == "[: (^^x) :]");
+static_assert(token_spelling_of(^^{ \[name, 2] }) == "count2");
+static_assert(token_kind_of(^^{ \str(name) }) == token_kind::string_literal);
+```
+
+The spelling of an interpolated reflection is `(^^...)`.  `token_value_of`
+gives the value of an `interpolated` token; see
+[`token_value_of`](#token_value_of).
+
+### Operands of `\str` and `\[...]`
+
+The operands that contribute characters must have type `std::string_view`.
+A string literal, a `const char *` (including the result of
+`std::define_static_string`), or a character array is rejected, with the
+somewhat misleading message "std::string_view used here is inconsistent with
+use in other intrinsics".  Convert explicitly:
+
+```cpp
+^^{ \str("text") }                     // Error
+^^{ \str(std::string_view("text")) }   // OK
+^^{ \["get_", identifier_of(m)] }      // Error: "get_" is not a view
+^^{ \["get_"sv, identifier_of(m)] }    // OK (using namespace std::literals)
+```
+
+The view itself may point into a string literal or into the character array
+of a constexpr variable with a constant initializer, such as the one
+`std::define_static_string` creates.  That lets a rewriter emit
+strings and names it computed:
 
 ```cpp
 consteval info log_line(std::string_view msg) {
   std::string_view text = std::define_static_string(msg);
   return ^^{ trace(\str(text)); };
+}
+```
+
+### Temporaries in operands
+
+A temporary object created in an operand is destroyed at the end of the
+full-expression that contains the token sequence, like any other temporary,
+and in a `return` statement before the local variables of the function.  So
+an operand may use a function that returns a `std::vector`:
+
+```cpp
+consteval std::vector<info> pieces();
+consteval info first_piece() {
+  return ^^{ \{pieces()[0]} };
 }
 ```
 

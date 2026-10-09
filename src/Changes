@@ -125,6 +125,9 @@ constant evaluation fail with "access to uninitialized object":
 because the early destruction is skipped for it.)  Such a temporary is now
 destroyed only at the end of the full-expression, like any other temporary.
 The same applies to the arguments of __builtin_constexpr_diag.
+Finally, the std::string_view operand of the \str and \[...] interpolators
+may now view the characters of a constexpr character array (such as the one
+that std::define_static_string creates), not only those of a string literal.
 
 
 10/9/26  [GH #27]
